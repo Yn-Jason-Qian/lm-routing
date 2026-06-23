@@ -36,6 +36,9 @@ public class GoogleMapsApiService {
     @Value("${routing.google.base-url:https://maps.googleapis.com}")
     private String baseUrl;
 
+    @Value("${routing.traffic.enabled:false}")
+    private boolean trafficEnabled;
+
     private static final int MAX_ELEMENTS = 100; // Max origins + destinations per call
 
     public GoogleMapsApiService(RestTemplate restTemplate, ObjectMapper objectMapper) {
@@ -101,13 +104,19 @@ public class GoogleMapsApiService {
                 .map(p -> p.getLat() + "," + p.getLng())
                 .collect(Collectors.joining("|"));
 
-        String url = UriComponentsBuilder
+        UriComponentsBuilder builder = UriComponentsBuilder
                 .fromHttpUrl(baseUrl + "/maps/api/distancematrix/json")
                 .queryParam("origins", origStr)
                 .queryParam("destinations", destStr)
                 .queryParam("mode", "driving")
-                .queryParam("key", apiKey)
-                .toUriString();
+                .queryParam("key", apiKey);
+
+        if (trafficEnabled) {
+            builder.queryParam("departure_time", "now")
+                   .queryParam("traffic_model", "best_guess");
+        }
+
+        String url = builder.toUriString();
 
         try {
             log.debug("Google Matrix: {}×{}", origins.size(), destinations.size());

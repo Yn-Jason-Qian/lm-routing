@@ -89,6 +89,11 @@ routing:
   cache:
     redis-ttl-days: 7
 
+  # Real-time traffic (increases API cost slightly but improves ETA accuracy)
+  traffic:
+    enabled: false                        # enable departure_time / depart_at
+    cache-ttl-seconds: 300                # traffic data cache (5 min vs 7 day distance cache)
+
   # Time window constraints
   time-window:
     default-service-time-seconds: 300    # 5 min per stop

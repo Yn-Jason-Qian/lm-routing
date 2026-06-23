@@ -36,6 +36,9 @@ public class MapboxApiService {
     @Value("${routing.mapbox.base-url:https://api.mapbox.com}")
     private String baseUrl;
 
+    @Value("${routing.traffic.enabled:false}")
+    private boolean trafficEnabled;
+
     private static final int MAX_COORDS_PER_REQUEST = 25;
 
     public MapboxApiService(RestTemplate restTemplate, ObjectMapper objectMapper) {
@@ -75,11 +78,16 @@ public class MapboxApiService {
                 .map(p -> p.getLng() + "," + p.getLat())
                 .collect(Collectors.joining(";"));
 
-        String url = UriComponentsBuilder
+        UriComponentsBuilder builder = UriComponentsBuilder
                 .fromHttpUrl(baseUrl + "/directions-matrix/v1/mapbox/driving/" + coords)
                 .queryParam("annotations", "distance")
-                .queryParam("access_token", accessToken)
-                .toUriString();
+                .queryParam("access_token", accessToken);
+
+        if (trafficEnabled) {
+            builder.queryParam("depart_at", "now");
+        }
+
+        String url = builder.toUriString();
 
         try {
             log.debug("Mapbox Matrix: {} points", points.size());
@@ -134,13 +142,18 @@ public class MapboxApiService {
                         .mapToObj(String::valueOf)
                         .collect(Collectors.joining(";"));
 
-                String url = UriComponentsBuilder
+                UriComponentsBuilder largeBuilder = UriComponentsBuilder
                         .fromHttpUrl(baseUrl + "/directions-matrix/v1/mapbox/driving/" + coords)
                         .queryParam("annotations", "distance")
                         .queryParam("sources", sources)
                         .queryParam("destinations", destinations)
-                        .queryParam("access_token", accessToken)
-                        .toUriString();
+                        .queryParam("access_token", accessToken);
+
+                if (trafficEnabled) {
+                    largeBuilder.queryParam("depart_at", "now");
+                }
+
+                String url = largeBuilder.toUriString();
 
                 try {
                     String responseJson = restTemplate.getForObject(url, String.class);

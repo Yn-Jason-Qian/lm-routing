@@ -517,11 +517,16 @@ lm-routing/
 
 ## 后续扩展
 
-- **多车辆 VRP**：数据模型已预留 `vehicleCount` 字段
-- **时间窗约束**：模型已预留 `timeWindowStart/End`
-- **容量约束**：模型已预留 `weightKg`
-- **WebSocket 推送**：Phase 进度实时推送前端
-- **实时路况**：Google 实时路况 + departure_time 参数
+详见 [plan.md](./plan.md) 完整开发路线图和 [progress.md](./progress.md) 进度追踪。
+
+| Phase | 功能 | 状态 | 数据模型 |
+|-------|------|------|----------|
+| 1 | **多车辆 VRP** | 📋 规划中 | `vehicleCount` 已预留 |
+| 2 | **时间窗约束** | 📋 规划中 | `timeWindowStart/End` 已预留 |
+| 3 | **容量约束** | 📋 规划中 | `weightKg` 已预留 |
+| 4 | **WebSocket 推送** | 📋 规划中 | Phase 进度实时推送 |
+| 5 | **实时路况** | 📋 规划中 | departure_time 参数 |
+| 6 | **增强与运维** | 📋 规划中 | Prometheus / 限流 / 批量 |
 
 ## License
 

@@ -87,10 +87,25 @@ Phase 6: 增强与运维           ✅ █████████████�
 
 | ID | 项目 | 状态 | 优先级 |
 |----|------|------|--------|
-| T1 | `DistanceMatrixProvider` 废弃类清理 | ✅ 已解决 | 低 |
-| T2 | `RouteSegmentInfo` 类型统一（AMap → 共享类型） | ✅ 已解决 | 低 |
-| T3 | ProviderSelector + CountryDetector 集成测试 | ✅ 已解决 | 中 |
-| T4 | `AwsMapsService` polyline 解码器完善 | ✅ 已解决 | 中 |
+| T1 | `DistanceMatrixProvider` 废弃类清理 | ✅ 已解决 |
+| T2 | `RouteSegmentInfo` 类型统一 | ✅ 已解决 |
+| T3 | ProviderSelector + CountryDetector 集成测试 | ✅ 已解决 |
+| T4 | `AwsMapsService` polyline 解码器 | ✅ 已解决 |
+
+---
+
+## 后续增强（按优先级排序）
+
+| # | 优先级 | 项目 | 简易度 | 预估 | 状态 |
+|---|--------|------|--------|------|------|
+| 1 | 🔴 P0 | README 更新 | ⭐ | 5min | ⬜ |
+| 2 | 🔴 P0 | API Key 认证 | ⭐⭐ | 30min | ⬜ |
+| 3 | 🟡 P1 | GitHub Actions CI | ⭐⭐ | 30min | ⬜ |
+| 4 | 🟡 P1 | 端到端 HTTP 测试 | ⭐⭐⭐ | 1h | ⬜ |
+| 5 | 🟢 P2 | Docker 多阶段构建 | ⭐ | 15min | ⬜ |
+| 6 | 🟢 P2 | 错误消息 i18n | ⭐⭐ | 30min | ⬜ |
+| 7 | 🟢 P2 | 地图可视化增强 | ⭐⭐⭐⭐ | 2h | ⬜ |
+| 8 | 🟢 P3 | 批量规划 | ⭐⭐⭐⭐⭐ | 1d | ⬜ |
 
 ---
 

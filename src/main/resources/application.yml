@@ -22,7 +22,7 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health,info,prometheus
   endpoint:
     health:
       show-details: when-authorized
@@ -93,6 +93,14 @@ routing:
   traffic:
     enabled: false                        # enable departure_time / depart_at
     cache-ttl-seconds: 300                # traffic data cache (5 min vs 7 day distance cache)
+
+  # API rate limiting (prevents unexpected billing spikes)
+  rate-limit:
+    google-per-second: 10
+    mapbox-per-second: 5
+    bing-per-second: 5
+    amap-per-second: 5
+    aws-per-second: 5
 
   # Time window constraints
   time-window:

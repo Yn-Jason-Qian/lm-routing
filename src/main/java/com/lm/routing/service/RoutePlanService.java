@@ -40,6 +40,7 @@ public class RoutePlanService {
     private final ProviderSelector providerSelector;
     private final GoogleClusterHybridProvider clusterHybridProvider;
     private final ProgressPushService progressPush;
+    private final com.lm.routing.config.MetricsConfig.AppMetrics metrics;
 
     @Value("${routing.amap.max-waypoints-per-call:30}")
     private int maxWaypointsPerCall;
@@ -51,7 +52,8 @@ public class RoutePlanService {
                             DistanceCacheService cacheService,
                             ProviderSelector providerSelector,
                             GoogleClusterHybridProvider clusterHybridProvider,
-                            ProgressPushService progressPush) {
+                            ProgressPushService progressPush,
+                            com.lm.routing.config.MetricsConfig.AppMetrics metrics) {
         this.planRepo = planRepo;
         this.tspSolver = tspSolver;
         this.amapService = amapService;
@@ -60,6 +62,7 @@ public class RoutePlanService {
         this.providerSelector = providerSelector;
         this.clusterHybridProvider = clusterHybridProvider;
         this.progressPush = progressPush;
+        this.metrics = metrics;
     }
 
     // ===== Public API =====
@@ -87,10 +90,12 @@ public class RoutePlanService {
         RoutePlan plan = planRepo.findById(planId)
                 .orElseThrow(() -> new RoutePlanException.NotFoundException(planId));
 
+        int pointCount = 0;
         try {
             // Collect all points: warehouse (index 0) + stops (index 1..N)
             List<GeoPoint> allPoints = collectPoints(plan);
             int n = allPoints.size();
+            pointCount = n;
             log.info("Starting route planning for {}: {} total points", planId, n);
 
             // === Phase 1: Distance Matrix (strategy-dependent) ===
@@ -233,11 +238,14 @@ public class RoutePlanService {
                     result.getVehicleRoutes().stream()
                             .mapToInt(vr -> vr.getSegments().size()).sum());
 
+            metrics.recordRequest(result.getFallback() != null && result.getFallback() ? "COMPLETED_FALLBACK" : "COMPLETED", n);
+
         } catch (Exception e) {
             log.error("{}: Route planning failed: {}", planId, e.getMessage(), e);
             plan.markFailed(e.getMessage());
             planRepo.save(plan);
             progressPush.pushProgress(planId, "FAILED", e.getMessage(), 0);
+            metrics.recordRequest("FAILED", pointCount);
         }
     }
 

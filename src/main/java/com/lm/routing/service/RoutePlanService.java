@@ -39,6 +39,7 @@ public class RoutePlanService {
     private final DistanceCacheService cacheService;
     private final ProviderSelector providerSelector;
     private final GoogleClusterHybridProvider clusterHybridProvider;
+    private final ProgressPushService progressPush;
 
     @Value("${routing.amap.max-waypoints-per-call:30}")
     private int maxWaypointsPerCall;
@@ -49,7 +50,8 @@ public class RoutePlanService {
                             RouteRefinementService refinementService,
                             DistanceCacheService cacheService,
                             ProviderSelector providerSelector,
-                            GoogleClusterHybridProvider clusterHybridProvider) {
+                            GoogleClusterHybridProvider clusterHybridProvider,
+                            ProgressPushService progressPush) {
         this.planRepo = planRepo;
         this.tspSolver = tspSolver;
         this.amapService = amapService;
@@ -57,6 +59,7 @@ public class RoutePlanService {
         this.cacheService = cacheService;
         this.providerSelector = providerSelector;
         this.clusterHybridProvider = clusterHybridProvider;
+        this.progressPush = progressPush;
     }
 
     // ===== Public API =====
@@ -91,8 +94,7 @@ public class RoutePlanService {
             log.info("Starting route planning for {}: {} total points", planId, n);
 
             // === Phase 1: Distance Matrix (strategy-dependent) ===
-            plan.updateProgress(PlanStatus.BUILDING_MATRIX, "Computing distance matrix", 5);
-            planRepo.save(plan);
+            updateAndPush(plan, PlanStatus.BUILDING_MATRIX, "Computing distance matrix", 5);
 
             GeoPoint warehouse = new GeoPoint(plan.getWarehouseLat(), plan.getWarehouseLng());
             MatrixProvider provider = providerSelector.selectProvider(allPoints, warehouse);
@@ -109,10 +111,9 @@ public class RoutePlanService {
             boolean hasTimeWindows = timeWindows != null;
 
             if (isVrp) {
-                plan.updateProgress(PlanStatus.SOLVING_TSP,
+                updateAndPush(plan, PlanStatus.SOLVING_TSP,
                         "Optimizing multi-vehicle routes with OR-Tools VRP"
                                 + (hasTimeWindows ? " (time windows)" : ""), 15);
-                planRepo.save(plan);
 
                 // Collect demands for capacity constraint
                 double[] demands = collectDemands(allPoints, plan);
@@ -134,6 +135,7 @@ public class RoutePlanService {
                 plan.setResult(result);
                 plan.markCompleted();
                 planRepo.save(plan);
+                progressPush.pushProgress(planId, "COMPLETED", "VRP route planning completed", 100);
 
                 log.info("{}: VRP route planning completed: {}m, {} vehicles",
                         planId, result.getTotalDistanceMeters(),
@@ -142,8 +144,7 @@ public class RoutePlanService {
             }
 
             // === TSP path (single vehicle) ===
-            plan.updateProgress(PlanStatus.SOLVING_TSP, "Optimizing route order with OR-Tools", 15);
-            planRepo.save(plan);
+            updateAndPush(plan, PlanStatus.SOLVING_TSP, "Optimizing route order with OR-Tools", 15);
 
             TspSolverService.TspResult tspResult = tspSolver.solve(
                     distanceMatrix, timeWindows, 300, 8.33);
@@ -163,9 +164,8 @@ public class RoutePlanService {
             List<AmapRouteService.RouteSegmentInfo> realSegments = List.of();
 
             if (!matrixResult.isRealRoad()) {
-                plan.updateProgress(PlanStatus.REFINING,
+                updateAndPush(plan, PlanStatus.REFINING,
                         "Fetching real road distances via " + provider.getName(), 30);
-                planRepo.save(plan);
 
                 if (provider instanceof AmapWaypointsProvider amapProvider) {
                     realSegments = fetchRealDistancesFromAmap(allPoints, order, plan);
@@ -188,9 +188,8 @@ public class RoutePlanService {
                     && matrixResult.clusterList() != null
                     && !matrixResult.clusterList().isEmpty()) {
 
-                plan.updateProgress(PlanStatus.REFINING,
+                updateAndPush(plan, PlanStatus.REFINING,
                         "Optimizing cluster boundary transitions with real distances", 70);
-                planRepo.save(plan);
 
                 int enriched = clusterHybridProvider.enrichBoundaryEdges(
                         distanceMatrix, order, allPoints,
@@ -206,8 +205,7 @@ public class RoutePlanService {
             }
 
             // === Phase 4: 2-opt Refinement ===
-            plan.updateProgress(PlanStatus.REFINING, "Refining route with 2-opt local search", 80);
-            planRepo.save(plan);
+            updateAndPush(plan, PlanStatus.REFINING, "Refining route with 2-opt local search", 80);
 
             int[] refinedOrder = refinementService.refineWithMatrix(order, distanceMatrix);
 
@@ -228,6 +226,7 @@ public class RoutePlanService {
             plan.setResult(result);
             plan.markCompleted();
             planRepo.save(plan);
+            progressPush.pushProgress(planId, "COMPLETED", "Route planning completed", 100);
 
             log.info("{}: Route planning completed: {}m, {} segments",
                     planId, result.getTotalDistanceMeters(),
@@ -238,6 +237,7 @@ public class RoutePlanService {
             log.error("{}: Route planning failed: {}", planId, e.getMessage(), e);
             plan.markFailed(e.getMessage());
             planRepo.save(plan);
+            progressPush.pushProgress(planId, "FAILED", e.getMessage(), 0);
         }
     }
 
@@ -261,6 +261,15 @@ public class RoutePlanService {
     }
 
     // ===== Private Helpers =====
+
+    /**
+     * Update plan progress in DB and push to WebSocket subscribers.
+     */
+    private void updateAndPush(RoutePlan plan, PlanStatus status, String message, int progress) {
+        plan.updateProgress(status, message, progress);
+        planRepo.save(plan);
+        progressPush.pushProgress(plan.getPlanId(), status.name(), message, progress);
+    }
 
     /**
      * Collect per-node demand (weightKg) for capacity-constrained VRP.

@@ -42,7 +42,10 @@
         .toast { position: fixed; top: 20px; right: 20px; padding: 12px 20px; border-radius: 8px; color: #fff; font-size: 14px; z-index: 9999; animation: slideIn 0.3s; }
         .toast-error { background: #d32f2f; }
         .toast-info { background: #1a73e8; }
+        .toast-ws { background: #4caf50; }
         @keyframes slideIn { from { transform: translateX(100px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+        .progress-bar-wrap { width: 100%; height: 6px; background: #e0e0e0; border-radius: 3px; margin-top: 8px; overflow: hidden; }
+        .progress-bar-fill { height: 100%; background: #1a73e8; border-radius: 3px; transition: width 0.3s; width: 0%; }
         .tile-switch { margin-top: 8px; display: flex; gap: 6px; }
         .tile-switch button { padding: 4px 10px; border: 1px solid rgba(255,255,255,0.4); border-radius: 4px; background: transparent; color: #fff; font-size: 11px; cursor: pointer; }
         .tile-switch button.active { background: rgba(255,255,255,0.25); font-weight: 600; }
@@ -63,7 +66,12 @@
                 <button onclick="switchTile('cycle')">CycleMap</button>
             </div>
         </div>
-        <div class="stats" id="stats"></div>
+        <div class="stats" id="stats">
+            <div id="progressBar" class="progress-bar-wrap" style="display:none;">
+                <div id="progressFill" class="progress-bar-fill"></div>
+            </div>
+            <div id="progressText" style="font-size:12px;margin-top:4px;color:#666;"></div>
+        </div>
         <div class="segment-list" id="segmentList"></div>
     </div>
     <div id="map">
@@ -77,6 +85,8 @@
     </div>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/sockjs-client@1.6.1/dist/sockjs.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@stomp/stompjs@7.0.0/bundles/stomp.umd.min.js"></script>
 <script>
 // Fallback if jsdelivr is blocked
 if (typeof L === 'undefined') {
@@ -148,6 +158,56 @@ function decodeAmapPolyline(encoded) {
     return coords;
 }
 
+// ===== WebSocket Progress =====
+let stompClient = null;
+
+function connectAndSubscribe(planId) {
+    if (typeof Stomp === 'undefined') {
+        console.log('STOMP.js not loaded, falling back to polling');
+        return; // Graceful fallback
+    }
+    const socket = new SockJS('/ws');
+    stompClient = Stomp.over(socket);
+    stompClient.debug = null; // suppress debug logs
+    stompClient.connect({}, () => {
+        showToast('📡 WebSocket 已连接', 'ws');
+        stompClient.subscribe(`/topic/plan/${planId}`, (msg) => {
+            const data = JSON.parse(msg.body);
+            updateProgress(data);
+        });
+    }, (err) => {
+        console.log('WebSocket connection failed, using polling fallback');
+    });
+}
+
+function updateProgress(data) {
+    const bar = document.getElementById('progressBar');
+    const fill = document.getElementById('progressFill');
+    const text = document.getElementById('progressText');
+    bar.style.display = 'block';
+    fill.style.width = data.progress + '%';
+    text.textContent = `${data.phase || ''} (${data.progress}%)`;
+
+    if (data.status === 'COMPLETED') {
+        text.textContent = '✅ 路线规划完成';
+        setTimeout(() => { bar.style.display = 'none'; text.textContent = ''; }, 3000);
+        // Auto-reload the plan
+        if (stompClient) { stompClient.disconnect(); stompClient = null; }
+        loadPlanSilent(data.planId);
+    } else if (data.status === 'FAILED') {
+        text.textContent = '❌ ' + (data.phase || '规划失败');
+        bar.style.display = 'none';
+        if (stompClient) { stompClient.disconnect(); stompClient = null; }
+    }
+}
+
+async function loadPlanSilent(planId) {
+    try {
+        const resp = await fetch(`/api/v1/route-plans/${planId}`);
+        if (resp.ok) displayPlan(await resp.json());
+    } catch (e) { /* ignore reload errors */ }
+}
+
 // ===== Load and Display Plan =====
 async function loadPlan() {
     const planId = document.getElementById('planIdInput').value.trim();
@@ -183,6 +243,8 @@ function displayPlan(plan) {
 
     if (plan.status !== 'COMPLETED') {
         showToast(`计划状态: ${plan.status} - ${plan.statusMessage || '尚未完成'}`, 'info');
+        // Subscribe to real-time progress via WebSocket
+        connectAndSubscribe(plan.planId);
     }
 
     // Show stats

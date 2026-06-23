@@ -1,0 +1,90 @@
+spring:
+  application:
+    name: lm-routing
+  profiles:
+    active: dev
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    open-in-view: false
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
+
+server:
+  port: 8080
+  shutdown: graceful
+  tomcat:
+    max-http-response-header-size: 8KB
+
+# Actuator health endpoints
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: when-authorized
+  health:
+    redis:
+      enabled: false   # Redis is optional, don't fail health check
+
+# Swagger / OpenAPI
+springdoc:
+  api-docs:
+    path: /api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+
+routing:
+  # Strategy: AUTO | OSRM | MAPBOX | BING | GOOGLE_FULL | CLUSTER_HYBRID | AMAP_WAYPOINTS | AWS_ROUTES | HAVERSINE_FULL
+  # AUTO: country-aware selection → fallback to availability chain
+  strategy: AUTO
+
+  # ===== Map Providers =====
+
+  # 高德地图 (AMap) — best for China, cheap waypoint enrichment
+  amap:
+    key: ${AMAP_API_KEY:}
+    base-url: https://restapi.amap.com
+    max-waypoints-per-call: 30
+
+  # Google Maps — global coverage, expensive per-element
+  google:
+    api-key: ${GOOGLE_MAPS_API_KEY:}
+    base-url: https://maps.googleapis.com
+
+  # OSRM — self-hosted free routing engine (recommended)
+  osrm:
+    base-url: ${OSRM_BASE_URL:http://localhost:5000}
+    timeout-seconds: 60
+
+  # Mapbox — best N.A./EU/India coverage, cheaper than Google
+  mapbox:
+    access-token: ${MAPBOX_ACCESS_TOKEN:}
+    base-url: https://api.mapbox.com
+
+  # Bing Maps — global coverage, truck routing, async matrix
+  bing:
+    api-key: ${BING_MAPS_API_KEY:}
+    base-url: https://dev.virtualearth.net
+
+  # AWS Location Service — cheapest paid option, route enrichment
+  aws:
+    api-key: ${AWS_MAPS_API_KEY:}
+    region: ${AWS_REGION:us-east-1}
+    route-calculator: Default
+
+  # ===== Algorithm Parameters =====
+
+  clustering:
+    max-points-per-cluster: 20
+    cluster-tsp-algorithm: OR_TOOLS   # OR_TOOLS | NEAREST_NEIGHBOR
+
+  solver:
+    max-time-seconds: 60
+  refinement:
+    2opt-window-size: 10
+  cache:
+    redis-ttl-days: 7

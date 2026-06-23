@@ -1,0 +1,44 @@
+target/
+*.class
+*.jar
+*.war
+.idea/
+*.iml
+.vscode/
+.settings/
+.project
+.classpath
+.DS_Store
+*.log
+
+# Temp & backup files
+nohup.out
+*.orig
+*.bak
+*~
+*.swp
+
+# Environment (contains secrets)
+.env
+.env.local
+.env.*.local
+
+# OS generated
+Thumbs.db
+ehthumbs.db
+
+# H2 database files (dev profile)
+*.db
+*.mv.db
+*.trace.db
+
+# Spring Boot
+*.pid
+application-local.yml
+application-local.properties
+
+# OSM road network data (downloaded at runtime)
+osm-data/
+
+# Claude Code local settings (contains machine-specific permissions)
+.claude/

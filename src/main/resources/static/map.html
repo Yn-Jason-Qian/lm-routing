@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>路线规划可视化 - LM Routing</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.min.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f5; }
+        .app { display: flex; height: 100vh; }
+        .sidebar { width: 380px; background: #fff; border-right: 1px solid #ddd; display: flex; flex-direction: column; overflow: hidden; }
+        .sidebar-header { padding: 16px; border-bottom: 1px solid #eee; background: #1a73e8; color: #fff; }
+        .sidebar-header h1 { font-size: 18px; margin-bottom: 12px; }
+        .input-group { display: flex; gap: 8px; }
+        .input-group input { flex: 1; padding: 8px 12px; border: none; border-radius: 6px; font-size: 14px; outline: none; }
+        .input-group button { padding: 8px 16px; border: none; border-radius: 6px; background: #0d47a1; color: #fff; font-size: 14px; cursor: pointer; font-weight: 600; }
+        .input-group button:hover { background: #0a3d8f; }
+        .input-group button:disabled { opacity: 0.6; cursor: not-allowed; }
+        .stats { padding: 12px 16px; background: #e8f5e9; border-bottom: 1px solid #c8e6c9; font-size: 13px; display: none; }
+        .stats.show { display: block; }
+        .stats .stat-row { display: flex; justify-content: space-between; margin: 4px 0; }
+        .stats .label { color: #666; }
+        .stats .value { font-weight: 600; color: #333; }
+        .stats .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+        .stats .badge-ok { background: #c8e6c9; color: #2e7d32; }
+        .stats .badge-fallback { background: #fff3e0; color: #e65100; }
+        .segment-list { flex: 1; overflow-y: auto; padding: 0; display: none; }
+        .segment-list.show { display: block; }
+        .segment-item { padding: 12px 16px; border-bottom: 1px solid #f0f0f0; cursor: pointer; font-size: 13px; transition: background 0.15s; }
+        .segment-item:hover { background: #f5f8ff; }
+        .segment-item.active { background: #e3f2fd; border-left: 3px solid #1a73e8; }
+        .segment-item .seg-title { font-weight: 600; color: #333; margin-bottom: 4px; }
+        .segment-item .seg-detail { color: #888; font-size: 12px; }
+        .segment-item .seg-detail span { margin-right: 12px; }
+        #map { flex: 1; height: 100vh; }
+        .legend { position: absolute; bottom: 30px; right: 10px; background: #fff; padding: 10px 14px; border-radius: 6px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); z-index: 1000; font-size: 12px; }
+        .legend-item { display: flex; align-items: center; margin: 4px 0; }
+        .legend-dot { width: 12px; height: 12px; border-radius: 50%; margin-right: 8px; }
+        .loading-overlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(255,255,255,0.8); z-index: 2000; display: flex; align-items: center; justify-content: center; font-size: 16px; color: #666; }
+        .toast { position: fixed; top: 20px; right: 20px; padding: 12px 20px; border-radius: 8px; color: #fff; font-size: 14px; z-index: 9999; animation: slideIn 0.3s; }
+        .toast-error { background: #d32f2f; }
+        .toast-info { background: #1a73e8; }
+        @keyframes slideIn { from { transform: translateX(100px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+        .tile-switch { margin-top: 8px; display: flex; gap: 6px; }
+        .tile-switch button { padding: 4px 10px; border: 1px solid rgba(255,255,255,0.4); border-radius: 4px; background: transparent; color: #fff; font-size: 11px; cursor: pointer; }
+        .tile-switch button.active { background: rgba(255,255,255,0.25); font-weight: 600; }
+    </style>
+</head>
+<body>
+<div class="app">
+    <div class="sidebar">
+        <div class="sidebar-header">
+            <h1>🗺️ 路线规划可视化</h1>
+            <div class="input-group">
+                <input type="text" id="planIdInput" placeholder="输入 Plan ID..." />
+                <button id="loadBtn" onclick="loadPlan()">加载</button>
+            </div>
+            <div class="tile-switch">
+                <button class="active" onclick="switchTile('osm')">OpenStreetMap</button>
+                <button onclick="switchTile('carto')">CartoDB</button>
+                <button onclick="switchTile('cycle')">CycleMap</button>
+            </div>
+        </div>
+        <div class="stats" id="stats"></div>
+        <div class="segment-list" id="segmentList"></div>
+    </div>
+    <div id="map">
+        <div class="loading-overlay" id="loading" style="display:none;">加载中...</div>
+        <div class="legend">
+            <div class="legend-item"><div class="legend-dot" style="background:#2e7d32;"></div>仓库</div>
+            <div class="legend-item"><div class="legend-dot" style="background:#1a73e8;"></div>配送点（序号=路线顺序）</div>
+            <div class="legend-item"><div class="legend-dot" style="background:#e53935;"></div>真实道路路径</div>
+            <div class="legend-item"><div class="legend-dot" style="background:#ff9800; border-radius:0; width:14px; height:2px;"></div>直线连接（回退）</div>
+        </div>
+    </div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.min.js"></script>
+<script>
+// Fallback if jsdelivr is blocked
+if (typeof L === 'undefined') {
+    document.write('<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"><\/script>');
+}
+</script>
+<script>
+// ===== Map Setup =====
+const tileUrls = {
+    osm: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+    carto: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
+    cycle: 'https://{s}.tile.opencyclemap.org/cycle/{z}/{x}/{y}.png'
+};
+const tileAttrs = {
+    osm: '&copy; <a href="https://openstreetmap.org">OpenStreetMap</a>',
+    carto: '&copy; <a href="https://carto.com">CARTO</a>',
+    cycle: '&copy; <a href="https://opencyclemap.org">OpenCycleMap</a>'
+};
+
+let currentTile = 'osm';
+const mapObj = L.map('map').setView([31.23, 121.47], 12);
+L.tileLayer(tileUrls.osm, { attribution: tileAttrs.osm, maxZoom: 19 }).addTo(mapObj);
+
+function switchTile(type) {
+    currentTile = type;
+    mapObj.eachLayer(l => { if (l instanceof L.TileLayer) mapObj.removeLayer(l); });
+    L.tileLayer(tileUrls[type], { attribution: tileAttrs[type], maxZoom: 19 }).addTo(mapObj);
+    document.querySelectorAll('.tile-switch button').forEach(b => b.classList.remove('active'));
+    document.querySelector(`.tile-switch button[onclick="switchTile('${type}')"]`).classList.add('active');
+}
+
+// ===== Layer Groups =====
+let markerLayer = L.layerGroup().addTo(mapObj);
+let routeLayer = L.layerGroup().addTo(mapObj);
+let highlightLayer = L.layerGroup().addTo(mapObj);
+
+// ===== AMap Polyline Decoder =====
+function decodeAmapPolyline(encoded) {
+    if (!encoded || encoded.length === 0) return [];
+    const coords = [];
+    let prevLng = 0, prevLat = 0;
+    let i = 0;
+    while (i < encoded.length) {
+        // Read lng delta
+        let result = 0, shift = 0;
+        let byte;
+        do {
+            byte = encoded.charCodeAt(i++) - 64;
+            result |= (byte & 0x1f) << shift;
+            shift += 5;
+        } while (byte >= 0x20 && i < encoded.length);
+        if (result & 1) result = ~(result >> 1);
+        else result = result >> 1;
+        prevLng += result;
+
+        // Read lat delta
+        result = 0; shift = 0;
+        do {
+            byte = encoded.charCodeAt(i++) - 64;
+            result |= (byte & 0x1f) << shift;
+            shift += 5;
+        } while (byte >= 0x20 && i < encoded.length);
+        if (result & 1) result = ~(result >> 1);
+        else result = result >> 1;
+        prevLat += result;
+
+        coords.push([prevLat / 1e6, prevLng / 1e6]);
+    }
+    return coords;
+}
+
+// ===== Load and Display Plan =====
+async function loadPlan() {
+    const planId = document.getElementById('planIdInput').value.trim();
+    if (!planId) { showToast('请输入 Plan ID', 'error'); return; }
+
+    const btn = document.getElementById('loadBtn');
+    btn.disabled = true;
+    btn.textContent = '加载中...';
+    document.getElementById('loading').style.display = 'flex';
+
+    try {
+        const resp = await fetch(`/api/v1/route-plans/${planId}`);
+        if (!resp.ok) {
+            const err = await resp.json().catch(() => ({}));
+            throw new Error(err.title || `HTTP ${resp.status}`);
+        }
+        const plan = await resp.json();
+        displayPlan(plan);
+    } catch (e) {
+        showToast(`加载失败: ${e.message}`, 'error');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '加载';
+        document.getElementById('loading').style.display = 'none';
+    }
+}
+
+function displayPlan(plan) {
+    // Clear previous
+    markerLayer.clearLayers();
+    routeLayer.clearLayers();
+    highlightLayer.clearLayers();
+
+    if (plan.status !== 'COMPLETED') {
+        showToast(`计划状态: ${plan.status} - ${plan.statusMessage || '尚未完成'}`, 'info');
+    }
+
+    // Show stats
+    renderStats(plan);
+
+    // Collect all waypoints
+    const warehouse = plan.warehouse;
+    const stops = plan.stops || [];
+    const segments = plan.route?.segments || [];
+    const isFallback = plan.route?.fallback;
+
+    // Build stop lookup by ID
+    const stopById = {};
+    stops.forEach(s => { stopById[s.id] = s; });
+
+    // Determine route order: from segments, extract unique stop sequence
+    // The warehouse is always the starting point
+    const orderedStops = []; // [{id, name, lat, lng, seq}]
+    const seenIds = new Set();
+
+    if (warehouse) {
+        orderedStops.push({ id: warehouse.id, name: warehouse.name || '仓库', lat: warehouse.lat, lng: warehouse.lng, seq: 0 });
+        seenIds.add(warehouse.id);
+    }
+
+    // Follow segments to get ordered stops
+    for (const seg of segments) {
+        if (!seenIds.has(seg.fromStopId) && seg.fromStopId !== warehouse?.id) {
+            const info = stopById[seg.fromStopId] || {};
+            orderedStops.push({ id: seg.fromStopId, name: info.name || seg.fromStopId, lat: seg.fromLat, lng: seg.fromLng, seq: orderedStops.length });
+            seenIds.add(seg.fromStopId);
+        }
+        if (!seenIds.has(seg.toStopId) && seg.toStopId !== warehouse?.id) {
+            const info = stopById[seg.toStopId] || {};
+            orderedStops.push({ id: seg.toStopId, name: info.name || seg.toStopId, lat: seg.toLat, lng: seg.toLng, seq: orderedStops.length });
+            seenIds.add(seg.toStopId);
+        }
+    }
+
+    // If no segments yet, show all stops from the plan
+    if (orderedStops.length <= 1 && stops.length > 0) {
+        stops.forEach(s => {
+            orderedStops.push({ id: s.id, name: s.name || s.id, lat: s.lat, lng: s.lng, seq: s.seq || orderedStops.length });
+        });
+    }
+
+    // Add markers
+    const bounds = [];
+    orderedStops.forEach((stop, idx) => {
+        const isWarehouse = idx === 0;
+        const color = isWarehouse ? '#2e7d32' : '#1a73e8';
+        const icon = L.divIcon({
+            className: 'custom-marker',
+            html: isWarehouse
+                ? `<div style="background:${color};color:#fff;width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:16px;border:3px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.3);">🏠</div>`
+                : `<div style="background:${color};color:#fff;width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.3);">${stop.seq}</div>`,
+            iconSize: isWarehouse ? [28, 28] : [26, 26],
+            iconAnchor: isWarehouse ? [14, 14] : [13, 13],
+            popupAnchor: [0, -14]
+        });
+        const marker = L.marker([stop.lat, stop.lng], { icon })
+            .bindPopup(`<b>${isWarehouse ? '📦 仓库' : '📍 停靠点 #' + stop.seq}</b><br>${stop.name}<br><small>${stop.lat.toFixed(5)}, ${stop.lng.toFixed(5)}</small>`)
+            .addTo(markerLayer);
+        bounds.push([stop.lat, stop.lng]);
+    });
+
+    // Draw route
+    let hasPolyline = false;
+    segments.forEach(seg => {
+        if (seg.polyline) {
+            const coords = decodeAmapPolyline(seg.polyline);
+            if (coords.length > 0) {
+                hasPolyline = true;
+                const pline = L.polyline(coords, {
+                    color: '#e53935', weight: 4, opacity: 0.8,
+                }).bindPopup(
+                    `<b>路段 #${seg.seq}</b><br>
+                     ${seg.fromStopId} → ${seg.toStopId}<br>
+                     距离: ${(seg.distanceMeters / 1000).toFixed(2)} km<br>
+                     ${seg.durationSeconds ? '时间: ' + formatDuration(seg.durationSeconds) : ''}`
+                ).addTo(routeLayer);
+                bounds.push(...coords);
+            }
+        }
+    });
+
+    // Fallback: straight lines for segments without polyline
+    if (!hasPolyline && segments.length > 0) {
+        segments.forEach(seg => {
+            const line = L.polyline([[seg.fromLat, seg.fromLng], [seg.toLat, seg.toLng]], {
+                color: '#ff9800', weight: 3, opacity: 0.7, dashArray: '8, 6'
+            }).bindPopup(
+                `<b>路段 #${seg.seq} (直线估算)</b><br>
+                 ${seg.fromStopId} → ${seg.toStopId}<br>
+                 距离: ${(seg.distanceMeters / 1000).toFixed(2)} km`
+            ).addTo(routeLayer);
+        });
+    }
+
+    // Fit bounds
+    if (bounds.length > 0) {
+        mapObj.fitBounds(bounds, { padding: [50, 50], maxZoom: 16 });
+    }
+
+    // Render segment list
+    renderSegmentList(segments, stops);
+
+    showToast(`已加载: ${plan.planId} (${plan.status})`, 'info');
+}
+
+function renderStats(plan) {
+    const stats = document.getElementById('stats');
+    const route = plan.route;
+    if (!route) {
+        stats.className = 'stats';
+        stats.innerHTML = `<div style="color:#888;">路线尚未计算完成</div>`;
+        return;
+    }
+    stats.className = 'stats show';
+    stats.innerHTML = `
+        <div class="stat-row"><span class="label">Plan ID</span><span class="value" style="font-size:11px;">${plan.planId}</span></div>
+        <div class="stat-row"><span class="label">状态</span><span class="value">${plan.status} ${route.fallback ? '<span class="badge badge-fallback">回退</span>' : '<span class="badge badge-ok">真实道路</span>'}</span></div>
+        <div class="stat-row"><span class="label">总距离</span><span class="value">${(route.totalDistanceMeters / 1000).toFixed(2)} km</span></div>
+        ${route.totalDurationSeconds ? `<div class="stat-row"><span class="label">总时间</span><span class="value">${formatDuration(route.totalDurationSeconds)}</span></div>` : ''}
+        <div class="stat-row"><span class="label">路段数</span><span class="value">${route.segments?.length || 0}</span></div>
+        <div class="stat-row"><span class="label">停靠点数</span><span class="value">${plan.stops?.length || 0}</span></div>
+    `;
+}
+
+function renderSegmentList(segments, stops) {
+    const list = document.getElementById('segmentList');
+    if (!segments || segments.length === 0) {
+        list.className = 'segment-list';
+        list.innerHTML = '';
+        return;
+    }
+    list.className = 'segment-list show';
+
+    // Build stop name lookup
+    const stopNames = {};
+    stops.forEach(s => { stopNames[s.id] = s.name || s.id; });
+
+    list.innerHTML = segments.map(seg => `
+        <div class="segment-item" onclick="highlightSegment(${seg.seq})">
+            <div class="seg-title">📍 路段 #${seg.seq}: ${stopNames[seg.fromStopId] || seg.fromStopId} → ${stopNames[seg.toStopId] || seg.toStopId}</div>
+            <div class="seg-detail">
+                <span>📏 ${(seg.distanceMeters / 1000).toFixed(2)} km</span>
+                ${seg.durationSeconds ? `<span>⏱ ${formatDuration(seg.durationSeconds)}</span>` : ''}
+                ${seg.polyline ? '<span>🛣️ 真实路径</span>' : '<span>📐 直线</span>'}
+            </div>
+        </div>
+    `).join('');
+
+    // Click handler
+    window.highlightSegment = function(seq) {
+        // Highlight segment in route
+        highlightLayer.clearLayers();
+        const seg = segments.find(s => s.seq === seq);
+        if (!seg) return;
+
+        // Flash the segment
+        if (seg.polyline) {
+            const coords = decodeAmapPolyline(seg.polyline);
+            L.polyline(coords, { color: '#ffeb3b', weight: 8, opacity: 0.9 }).addTo(highlightLayer);
+        } else {
+            L.polyline([[seg.fromLat, seg.fromLng], [seg.toLat, seg.toLng]], {
+                color: '#ffeb3b', weight: 8, opacity: 0.9
+            }).addTo(highlightLayer);
+        }
+
+        // Pan to segment
+        mapObj.fitBounds([
+            [seg.fromLat, seg.fromLng],
+            [seg.toLat, seg.toLng]
+        ], { padding: [50, 50], maxZoom: 17 });
+
+        // Update active state in list
+        document.querySelectorAll('.segment-item').forEach(el => el.classList.remove('active'));
+        document.querySelectorAll('.segment-item')[seq]?.classList.add('active');
+    };
+}
+
+function formatDuration(seconds) {
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    return h > 0 ? `${h}h ${m}m` : `${m} min`;
+}
+
+function showToast(msg, type) {
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+    toast.textContent = msg;
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 3000);
+}
+
+// Enter key triggers load
+document.getElementById('planIdInput').addEventListener('keydown', e => {
+    if (e.key === 'Enter') loadPlan();
+});
+
+// Auto-load if planId is in URL hash
+window.addEventListener('load', () => {
+    const hash = window.location.hash.slice(1);
+    if (hash) {
+        document.getElementById('planIdInput').value = hash;
+        loadPlan();
+    }
+});
+</script>
+</body>
+</html>

@@ -537,7 +537,7 @@ public class RoutePlanService {
 
     /**
      * Fetch real road distances by calling AMap API in batches of maxWaypointsPerCall.
-     * 200 stops → ceil(200/30) ≈ 7 parallel AMap calls.
+     * Checks Redis cache first to avoid redundant API calls.
      */
     private List<com.lm.routing.service.provider.RouteSegmentInfo> fetchRealDistancesFromAmap(
             List<GeoPoint> points, int[] order, RoutePlan plan) {
@@ -545,35 +545,47 @@ public class RoutePlanService {
         List<CompletableFuture<List<com.lm.routing.service.provider.RouteSegmentInfo>>> futures = new ArrayList<>();
         int n = order.length;
 
-        // Split the ordered route into batches
-        int batchStart = 0; // warehouse is index 0
+        int batchStart = 0;
         while (batchStart < n - 1) {
             int batchEnd = Math.min(batchStart + maxWaypointsPerCall, n - 1);
 
             final int bs = batchStart;
             final int be = batchEnd;
 
-            CompletableFuture<List<com.lm.routing.service.provider.RouteSegmentInfo>> future =
-                    CompletableFuture.supplyAsync(() -> {
-                        GeoPoint origin = points.get(order[bs]);
-                        GeoPoint dest = points.get(order[be]);
+            // Check cache first for origin→dest
+            GeoPoint origin = points.get(order[bs]);
+            GeoPoint dest = points.get(order[be]);
+            var cached = cacheService.get(origin.getLat(), origin.getLng(),
+                    dest.getLat(), dest.getLng());
 
-                        // Collect waypoints between origin and dest (exclusive)
-                        List<Double> wpCoords = new ArrayList<>();
-                        for (int k = bs + 1; k < be; k++) {
-                            GeoPoint wp = points.get(order[k]);
-                            wpCoords.add(wp.getLat());
-                            wpCoords.add(wp.getLng());
-                        }
+            if (cached.isPresent()) {
+                // Use cached distance, skip API call for this batch
+                log.debug("AMap batch [{},{}]: using cached distance", bs, be);
+                var seg = new com.lm.routing.service.provider.RouteSegmentInfo();
+                seg.setSeq(bs);
+                seg.setFromLat(origin.getLat()); seg.setFromLng(origin.getLng());
+                seg.setToLat(dest.getLat()); seg.setToLng(dest.getLng());
+                seg.setDistanceMeters(cached.get().distanceMeters());
+                seg.setDurationSeconds(cached.get().durationSeconds());
+                futures.add(CompletableFuture.completedFuture(List.of(seg)));
+            } else {
+                CompletableFuture<List<com.lm.routing.service.provider.RouteSegmentInfo>> future =
+                        CompletableFuture.supplyAsync(() -> {
+                            List<Double> wpCoords = new ArrayList<>();
+                            for (int k = bs + 1; k < be; k++) {
+                                GeoPoint wp = points.get(order[k]);
+                                wpCoords.add(wp.getLat());
+                                wpCoords.add(wp.getLng());
+                            }
+                            return amapService.fetchRouteSegments(
+                                    origin.getLat(), origin.getLng(),
+                                    dest.getLat(), dest.getLng(),
+                                    wpCoords);
+                        });
+                futures.add(future);
+            }
 
-                        return amapService.fetchRouteSegments(
-                                origin.getLat(), origin.getLng(),
-                                dest.getLat(), dest.getLng(),
-                                wpCoords);
-                    });
-
-            futures.add(future);
-            batchStart = batchEnd; // next batch starts at previous destination
+            batchStart = batchEnd;
         }
 
         // Wait for all parallel calls
@@ -619,25 +631,37 @@ public class RoutePlanService {
             final int bs = batchStart;
             final int be = batchEnd;
 
-            CompletableFuture<List<com.lm.routing.service.provider.RouteSegmentInfo>> future =
-                    CompletableFuture.supplyAsync(() -> {
-                        GeoPoint origin = points.get(order[bs]);
-                        GeoPoint dest = points.get(order[be]);
+            // Check cache first
+            GeoPoint origin = points.get(order[bs]);
+            GeoPoint dest = points.get(order[be]);
+            var cached = cacheService.get(origin.getLat(), origin.getLng(),
+                    dest.getLat(), dest.getLng());
 
-                        List<Double> wpCoords = new ArrayList<>();
-                        for (int k = bs + 1; k < be; k++) {
-                            GeoPoint wp = points.get(order[k]);
-                            wpCoords.add(wp.getLat());
-                            wpCoords.add(wp.getLng());
-                        }
+            if (cached.isPresent()) {
+                var seg = new com.lm.routing.service.provider.RouteSegmentInfo();
+                seg.setSeq(bs);
+                seg.setFromLat(origin.getLat()); seg.setFromLng(origin.getLng());
+                seg.setToLat(dest.getLat()); seg.setToLng(dest.getLng());
+                seg.setDistanceMeters(cached.get().distanceMeters());
+                seg.setDurationSeconds(cached.get().durationSeconds());
+                futures.add(CompletableFuture.completedFuture(List.of(seg)));
+            } else {
+                CompletableFuture<List<com.lm.routing.service.provider.RouteSegmentInfo>> future =
+                        CompletableFuture.supplyAsync(() -> {
+                            List<Double> wpCoords = new ArrayList<>();
+                            for (int k = bs + 1; k < be; k++) {
+                                GeoPoint wp = points.get(order[k]);
+                                wpCoords.add(wp.getLat());
+                                wpCoords.add(wp.getLng());
+                            }
+                            return awsProvider.getAwsMapsService().fetchRouteSegments(
+                                    origin.getLat(), origin.getLng(),
+                                    dest.getLat(), dest.getLng(),
+                                    wpCoords);
+                        });
+                futures.add(future);
+            }
 
-                        return awsProvider.getAwsMapsService().fetchRouteSegments(
-                                origin.getLat(), origin.getLng(),
-                                dest.getLat(), dest.getLng(),
-                                wpCoords);
-                    });
-
-            futures.add(future);
             batchStart = batchEnd;
         }
 

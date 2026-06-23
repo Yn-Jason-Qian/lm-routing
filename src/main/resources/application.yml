@@ -38,6 +38,10 @@ springdoc:
     path: /swagger-ui.html
 
 routing:
+  # API authentication (leave blank to disable)
+  api:
+    key: ${API_KEY:}
+
   # Strategy: AUTO | OSRM | MAPBOX | BING | GOOGLE_FULL | CLUSTER_HYBRID | AMAP_WAYPOINTS | AWS_ROUTES | HAVERSINE_FULL
   # AUTO: country-aware selection → fallback to availability chain
   strategy: AUTO

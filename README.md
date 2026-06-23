@@ -519,14 +519,16 @@ lm-routing/
 
 详见 [plan.md](./plan.md) 完整开发路线图和 [progress.md](./progress.md) 进度追踪。
 
-| Phase | 功能 | 状态 | 数据模型 |
-|-------|------|------|----------|
-| 1 | **多车辆 VRP** | 📋 规划中 | `vehicleCount` 已预留 |
-| 2 | **时间窗约束** | 📋 规划中 | `timeWindowStart/End` 已预留 |
-| 3 | **容量约束** | 📋 规划中 | `weightKg` 已预留 |
-| 4 | **WebSocket 推送** | 📋 规划中 | Phase 进度实时推送 |
-| 5 | **实时路况** | 📋 规划中 | departure_time 参数 |
-| 6 | **增强与运维** | 📋 规划中 | Prometheus / 限流 / 批量 |
+| Phase | 功能 | 状态 |
+|-------|------|------|
+| 0 | **多地图服务矩阵** | ✅ 已完成（8 提供商 + 国家路由） |
+| 1 | **多车辆 VRP** | ✅ 已完成（容量约束随附） |
+| 2 | **时间窗约束** | ✅ 已完成（硬约束 + 等待） |
+| 4 | **WebSocket 推送** | ✅ 已完成（STOMP + 降级轮询） |
+| 5 | **实时路况** | ✅ 已完成（Google + Mapbox） |
+| 6 | **增强与运维** | ✅ 已完成（Prometheus + 限流） |
+
+详见 [plan.md](./plan.md) 和 [progress.md](./progress.md)。
 
 ## License
 

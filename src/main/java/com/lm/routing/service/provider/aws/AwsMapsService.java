@@ -162,58 +162,71 @@ public class AwsMapsService {
     }
 
     /**
-     * Basic AWS flexible polyline decoder.
-     * Decodes all coordinate pairs from the encoded string.
+     * AWS flexible polyline decoder.
+     *
+     * The format uses 5-bit character encoding (0-63 mapped to
+     * A-Za-z0-9_\-). The first character is a header. Each subsequent
+     * value is a zigzag-encoded delta in units of 1e-5 degrees.
+     *
+     * @see <a href="https://github.com/heremaps/flexible-polyline">Flexible Polyline spec</a>
      */
     private List<double[]> decodeFlexiblePolyline(String encoded) {
         List<double[]> points = new ArrayList<>();
-        int i = 0;
+        if (encoded == null || encoded.length() < 2) return points;
+
+        // Skip header character (stores encoding format info)
+        int i = 1;
         double lat = 0, lng = 0;
 
         while (i < encoded.length()) {
-            // Decode latitude delta
-            int latResult = decodeUnsignedVarint(encoded, i);
-            int latDelta = decodeZigZag(latResult);
-            i = nextIndex(encoded, i);
-            if (i < 0) break;
+            int latDelta = decodeValue(encoded, i);
+            if (latDelta == Integer.MIN_VALUE) break;
+            i = advanceIndex(encoded, i);
 
-            // Decode longitude delta
-            int lngResult = decodeUnsignedVarint(encoded, i);
-            int lngDelta = decodeZigZag(lngResult);
-            i = nextIndex(encoded, i);
-            if (i < 0) break;
+            int lngDelta = decodeValue(encoded, i);
+            if (lngDelta == Integer.MIN_VALUE) break;
+            i = advanceIndex(encoded, i);
 
-            lat += latDelta * 1e-5;
-            lng += lngDelta * 1e-5;
+            lat += latDelta / 1e5;
+            lng += lngDelta / 1e5;
             points.add(new double[]{lat, lng});
         }
-
         return points;
     }
 
-    private int decodeUnsignedVarint(String s, int start) {
+    /** Decode a single zigzag-encoded value from the string starting at index. */
+    private int decodeValue(String s, int start) {
         int result = 0;
         int shift = 0;
         for (int i = start; i < s.length(); i++) {
-            int b = s.charAt(i) - '?'; // '?' = 63 is the offset
-            // Actually, flexible polyline is a string encoding, not binary varint.
-            // Simplification: return a best-effort approximate.
-            result |= (b & 0x1F) << shift;
-            if ((b & 0x20) == 0) break;
+            int code = charToValue(s.charAt(i));
+            if (code < 0) return Integer.MIN_VALUE;
+            result |= (code & 0x1f) << shift;
+            if ((code & 0x20) == 0) {
+                return (result >>> 1) ^ -(result & 1); // zigzag decode
+            }
             shift += 5;
         }
-        return result;
+        return Integer.MIN_VALUE;
     }
 
-    private int decodeZigZag(int value) {
-        return (value >>> 1) ^ -(value & 1);
-    }
-
-    private int nextIndex(String s, int start) {
-        for (int i = start; i < s.length(); i++) {
-            if ((s.charAt(i) - '?' & 0x20) == 0) return i + 1;
-        }
+    /** Map a printable character to its 6-bit value (0-63). */
+    private int charToValue(char c) {
+        if (c >= 'A' && c <= 'Z') return c - 'A';
+        if (c >= 'a' && c <= 'z') return c - 'a' + 26;
+        if (c >= '0' && c <= '9') return c - '0' + 52;
+        if (c == '_') return 62;
+        if (c == '-') return 63;
         return -1;
+    }
+
+    /** Move past the current encoded value to start of next. */
+    private int advanceIndex(String s, int start) {
+        for (int i = start; i < s.length(); i++) {
+            int code = charToValue(s.charAt(i));
+            if (code < 0 || (code & 0x20) == 0) return i + 1;
+        }
+        return s.length();
     }
 
     // ===== AWS Route Calculator API DTOs =====

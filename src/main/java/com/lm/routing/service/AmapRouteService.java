@@ -3,6 +3,7 @@ package com.lm.routing.service;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.lm.routing.config.RateLimiter;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -30,6 +31,7 @@ public class AmapRouteService {
 
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
+    private final RateLimiter rateLimiter;
 
     @Value("${routing.amap.key:}")
     private String apiKey;
@@ -40,9 +42,11 @@ public class AmapRouteService {
     @Value("${routing.amap.max-waypoints-per-call:30}")
     private int maxWaypointsPerCall;
 
-    public AmapRouteService(RestTemplate restTemplate, ObjectMapper objectMapper) {
+    public AmapRouteService(RestTemplate restTemplate, ObjectMapper objectMapper,
+                             RateLimiter amapRateLimiter) {
         this.restTemplate = restTemplate;
         this.objectMapper = objectMapper;
+        this.rateLimiter = amapRateLimiter;
     }
 
     public boolean isAvailable() {
@@ -71,8 +75,8 @@ public class AmapRouteService {
 
         try {
             String url = buildUrl(originLat, originLng, destLat, destLng, waypoints);
+            rateLimiter.acquire();
             log.debug("Calling AMap direction API: {} waypoints", waypoints.size() / 2);
-
             String responseJson = restTemplate.getForObject(url, String.class);
             AmapDirectionResponse response = objectMapper.readValue(responseJson, AmapDirectionResponse.class);
 

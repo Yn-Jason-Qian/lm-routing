@@ -3,6 +3,7 @@ package com.lm.routing.service;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.lm.routing.config.RateLimiter;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -29,6 +30,7 @@ public class GoogleMapsApiService {
 
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
+    private final RateLimiter rateLimiter;
 
     @Value("${routing.google.api-key:}")
     private String apiKey;
@@ -41,9 +43,11 @@ public class GoogleMapsApiService {
 
     private static final int MAX_ELEMENTS = 100; // Max origins + destinations per call
 
-    public GoogleMapsApiService(RestTemplate restTemplate, ObjectMapper objectMapper) {
+    public GoogleMapsApiService(RestTemplate restTemplate, ObjectMapper objectMapper,
+                                 RateLimiter googleRateLimiter) {
         this.restTemplate = restTemplate;
         this.objectMapper = objectMapper;
+        this.rateLimiter = googleRateLimiter;
     }
 
     public boolean isAvailable() {
@@ -119,6 +123,7 @@ public class GoogleMapsApiService {
         String url = builder.toUriString();
 
         try {
+            rateLimiter.acquire();
             log.debug("Google Matrix: {}×{}", origins.size(), destinations.size());
             String responseJson = restTemplate.getForObject(url, String.class);
 

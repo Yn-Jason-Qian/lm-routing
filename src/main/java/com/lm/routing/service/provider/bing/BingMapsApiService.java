@@ -3,6 +3,7 @@ package com.lm.routing.service.provider.bing;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.lm.routing.config.RateLimiter;
 import com.lm.routing.service.GeoPoint;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
@@ -33,6 +34,7 @@ public class BingMapsApiService {
 
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
+    private final RateLimiter rateLimiter;
 
     @Value("${routing.bing.api-key:}")
     private String apiKey;
@@ -47,9 +49,11 @@ public class BingMapsApiService {
     private static final int MAX_ORIGINS = 30;
     private static final int MAX_DESTINATIONS = 30;
 
-    public BingMapsApiService(RestTemplate restTemplate, ObjectMapper objectMapper) {
+    public BingMapsApiService(RestTemplate restTemplate, ObjectMapper objectMapper,
+                               RateLimiter bingRateLimiter) {
         this.restTemplate = restTemplate;
         this.objectMapper = objectMapper;
+        this.rateLimiter = bingRateLimiter;
     }
 
     public boolean isAvailable() {
@@ -92,6 +96,7 @@ public class BingMapsApiService {
             headers.setContentType(MediaType.APPLICATION_JSON);
             HttpEntity<BingMatrixRequest> request = new HttpEntity<>(body, headers);
 
+            rateLimiter.acquire();
             log.debug("Bing Matrix: {}×{}", origins.size(), destinations.size());
             ResponseEntity<String> response = restTemplate.exchange(
                     url, HttpMethod.POST, request, String.class);

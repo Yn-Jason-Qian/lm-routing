@@ -3,6 +3,7 @@ package com.lm.routing.service.provider.mapbox;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.lm.routing.config.RateLimiter;
 import com.lm.routing.service.GeoPoint;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
@@ -29,6 +30,7 @@ public class MapboxApiService {
 
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
+    private final RateLimiter rateLimiter;
 
     @Value("${routing.mapbox.access-token:}")
     private String accessToken;
@@ -41,9 +43,11 @@ public class MapboxApiService {
 
     private static final int MAX_COORDS_PER_REQUEST = 25;
 
-    public MapboxApiService(RestTemplate restTemplate, ObjectMapper objectMapper) {
+    public MapboxApiService(RestTemplate restTemplate, ObjectMapper objectMapper,
+                             RateLimiter mapboxRateLimiter) {
         this.restTemplate = restTemplate;
         this.objectMapper = objectMapper;
+        this.rateLimiter = mapboxRateLimiter;
     }
 
     public boolean isAvailable() {
@@ -90,6 +94,7 @@ public class MapboxApiService {
         String url = builder.toUriString();
 
         try {
+            rateLimiter.acquire();
             log.debug("Mapbox Matrix: {} points", points.size());
             String responseJson = restTemplate.getForObject(url, String.class);
             MapboxMatrixResponse response = objectMapper.readValue(responseJson, MapboxMatrixResponse.class);
@@ -156,6 +161,7 @@ public class MapboxApiService {
                 String url = largeBuilder.toUriString();
 
                 try {
+                    rateLimiter.acquire();
                     String responseJson = restTemplate.getForObject(url, String.class);
                     MapboxMatrixResponse response = objectMapper.readValue(responseJson, MapboxMatrixResponse.class);
 

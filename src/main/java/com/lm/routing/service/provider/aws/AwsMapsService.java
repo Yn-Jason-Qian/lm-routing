@@ -3,6 +3,7 @@ package com.lm.routing.service.provider.aws;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.lm.routing.config.RateLimiter;
 import com.lm.routing.service.provider.RouteSegmentInfo;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
@@ -34,6 +35,7 @@ public class AwsMapsService {
 
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
+    private final RateLimiter rateLimiter;
 
     @Value("${routing.aws.api-key:}")
     private String apiKey;
@@ -46,9 +48,11 @@ public class AwsMapsService {
 
     private static final int MAX_WAYPOINTS = 25;
 
-    public AwsMapsService(RestTemplate restTemplate, ObjectMapper objectMapper) {
+    public AwsMapsService(RestTemplate restTemplate, ObjectMapper objectMapper,
+                           RateLimiter awsRateLimiter) {
         this.restTemplate = restTemplate;
         this.objectMapper = objectMapper;
+        this.rateLimiter = awsRateLimiter;
     }
 
     public boolean isAvailable() {
@@ -99,6 +103,7 @@ public class AwsMapsService {
             headers.setContentType(MediaType.APPLICATION_JSON);
             HttpEntity<AwsRouteRequest> request = new HttpEntity<>(body, headers);
 
+            rateLimiter.acquire();
             log.debug("AWS Route Calculator: {} waypoints", waypoints != null ? waypoints.size() / 2 : 0);
             ResponseEntity<String> response = restTemplate.exchange(
                     url, HttpMethod.POST, request, String.class);

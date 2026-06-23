@@ -120,7 +120,7 @@ public class RouteRefinementService {
      *
      * This should be called AFTER the distance matrix has been enriched with
      * real road distances at cluster boundaries (see
-     * {@link DistanceMatrixProvider#enrichBoundaryEdges}).
+     * {@link com.lm.routing.service.provider.GoogleClusterHybridProvider#enrichBoundaryEdges}).
      *
      * @param order              the current route order
      * @param matrix             N×N distance matrix (should be enriched at boundaries)

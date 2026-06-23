@@ -28,22 +28,17 @@
 
 ---
 
-### Phase 2: 时间窗约束
+### Phase 2: 时间窗约束 ✅ (已完成)
 
-**目标**：支持每配送点的送达时间窗口（硬约束或软约束）。
+**目标**：支持每配送点的送达时间窗口（硬约束）。
 
-**数据模型已就绪**：
-- `DeliveryStop.timeWindowStart` / `timeWindowEnd`
-- `RoutePlanRequest.StopInfo.timeWindowStart` / `timeWindowEnd`
-
-**实现步骤**：
-
-| # | 任务 | 说明 | 预估 |
-|---|------|------|------|
-| 2.1 | **OR-Tools 时间维度** | 在 VRP 模型中加入 `AddDimension` 时间窗，硬约束（必须在窗口内到达） | 2d |
-| 2.2 | **等待时间建模** | 早到需要等待，计入累计时间 | 1d |
-| 2.3 | **软时间窗** | 允许违反但施加惩罚（`AddSoftSameVehicleConstraint`） | 1d |
-| 2.4 | **API 验证** | 时间窗格式校验（ISO-8601）、逻辑校验（start < end） | 0.5d |
+**已完成**：
+- [x] OR-Tools 时间维度：`addTimeDimension()` — travel_time = dist/speed + serviceTime
+- [x] 硬时间窗：`cumulVar.SetRange(start, end)` per-node
+- [x] 等待时间：maxSlack = 30 分钟（早到等待）
+- [x] ISO-8601 解析：`buildTimeWindows()` → 相对秒数
+- [x] TSP + VRP 均支持
+- [x] 5 个时间窗测试，63/63 通过
 
 ---
 

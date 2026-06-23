@@ -105,10 +105,13 @@ public class RoutePlanService {
             // === Phase 2: TSP or VRP Solving ===
             int vehicleCount = plan.getVehicleCount() != null ? plan.getVehicleCount() : 1;
             boolean isVrp = vehicleCount > 1;
+            long[][] timeWindows = buildTimeWindows(plan, n);
+            boolean hasTimeWindows = timeWindows != null;
 
             if (isVrp) {
                 plan.updateProgress(PlanStatus.SOLVING_TSP,
-                        "Optimizing multi-vehicle routes with OR-Tools VRP", 15);
+                        "Optimizing multi-vehicle routes with OR-Tools VRP"
+                                + (hasTimeWindows ? " (time windows)" : ""), 15);
                 planRepo.save(plan);
 
                 // Collect demands for capacity constraint
@@ -116,7 +119,8 @@ public class RoutePlanService {
                 double maxCapacity = plan.getMaxCapacityKg() != null ? plan.getMaxCapacityKg() : 0;
 
                 TspSolverService.VrpResult vrpResult = tspSolver.solveVrp(
-                        distanceMatrix, vehicleCount, demands, maxCapacity);
+                        distanceMatrix, vehicleCount, demands, maxCapacity,
+                        timeWindows, 300, 8.33);
                 List<int[]> vehicleRoutes = vrpResult.routes();
 
                 log.info("{}: VRP solved: {} vehicles, {} nodes, distance={}m, optimal={}",
@@ -141,7 +145,8 @@ public class RoutePlanService {
             plan.updateProgress(PlanStatus.SOLVING_TSP, "Optimizing route order with OR-Tools", 15);
             planRepo.save(plan);
 
-            TspSolverService.TspResult tspResult = tspSolver.solve(distanceMatrix);
+            TspSolverService.TspResult tspResult = tspSolver.solve(
+                    distanceMatrix, timeWindows, 300, 8.33);
             int[] order = tspResult.route();
             log.info("{}: TSP solved: {} nodes, distance={}m, optimal={}",
                     planId, n, String.format("%.0f", tspResult.totalDistance()), tspResult.solved());
@@ -273,6 +278,60 @@ public class RoutePlanService {
             }
         }
         return demands;
+    }
+
+    /**
+     * Build time window array from plan stops. Returns null if no windows are set.
+     *
+     * Each entry is [startSeconds, endSeconds] relative to midnight of the earliest window.
+     * Depot (index 0) gets a wide-open window.
+     */
+    private long[][] buildTimeWindows(RoutePlan plan, int n) {
+        // Check if any stop has a time window
+        boolean anyWindow = false;
+        for (DeliveryStop stop : plan.getStops()) {
+            if (stop.getTimeWindowStart() != null && stop.getTimeWindowEnd() != null) {
+                anyWindow = true;
+                break;
+            }
+        }
+        if (!anyWindow) return null;
+
+        long[][] windows = new long[n][2];
+
+        // Find earliest window start as reference point (midnight)
+        long referenceEpoch = Long.MAX_VALUE;
+        for (DeliveryStop stop : plan.getStops()) {
+            if (stop.getTimeWindowStart() != null) {
+                referenceEpoch = Math.min(referenceEpoch,
+                        stop.getTimeWindowStart().getEpochSecond());
+            }
+        }
+        if (referenceEpoch == Long.MAX_VALUE) referenceEpoch = 0;
+
+        // Depot: all-day window
+        long midnightRef = referenceEpoch - (referenceEpoch % 86400); // floor to day
+        windows[0][0] = 0;
+        windows[0][1] = 12 * 3600; // 12 hour horizon
+
+        // Each stop: compute offset seconds from midnight
+        for (int i = 1; i < n; i++) {
+            int stopIdx = i - 1;
+            if (stopIdx < plan.getStops().size()) {
+                DeliveryStop stop = plan.getStops().get(stopIdx);
+                if (stop.getTimeWindowStart() != null && stop.getTimeWindowEnd() != null) {
+                    windows[i][0] = stop.getTimeWindowStart().getEpochSecond() - midnightRef;
+                    windows[i][1] = stop.getTimeWindowEnd().getEpochSecond() - midnightRef;
+                    // Ensure valid range
+                    if (windows[i][0] < 0) windows[i][0] = 0;
+                    if (windows[i][1] <= windows[i][0]) windows[i][1] = windows[i][0] + 3600;
+                } else {
+                    windows[i] = null; // No constraint for this stop
+                }
+            }
+        }
+
+        return windows;
     }
 
     /**
@@ -425,16 +484,24 @@ public class RoutePlanService {
 
         List<DeliveryStop> stops = new ArrayList<>();
         for (StopInfo si : request.getStops()) {
-            DeliveryStop stop = DeliveryStop.builder()
+            DeliveryStop.DeliveryStopBuilder stopBuilder = DeliveryStop.builder()
                     .stopId(si.getId())
                     .name(si.getName())
                     .address(si.getAddress())
                     .lat(si.getLat())
                     .lng(si.getLng())
                     .weightKg(si.getWeightKg())
-                    .routePlan(plan)
-                    .build();
-            stops.add(stop);
+                    .routePlan(plan);
+
+            // Parse ISO-8601 time window strings
+            if (si.getTimeWindowStart() != null && !si.getTimeWindowStart().isBlank()) {
+                stopBuilder.timeWindowStart(java.time.Instant.parse(si.getTimeWindowStart()));
+            }
+            if (si.getTimeWindowEnd() != null && !si.getTimeWindowEnd().isBlank()) {
+                stopBuilder.timeWindowEnd(java.time.Instant.parse(si.getTimeWindowEnd()));
+            }
+
+            stops.add(stopBuilder.build());
         }
         plan.setStops(stops);
         return plan;

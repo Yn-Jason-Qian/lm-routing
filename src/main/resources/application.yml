@@ -88,3 +88,10 @@ routing:
     2opt-window-size: 10
   cache:
     redis-ttl-days: 7
+
+  # Time window constraints
+  time-window:
+    default-service-time-seconds: 300    # 5 min per stop
+    avg-speed-kmh: 30                    # distance → time conversion
+    max-waiting-seconds: 1800            # max waiting if early (30 min)
+    horizon-hours: 12                    # default day length

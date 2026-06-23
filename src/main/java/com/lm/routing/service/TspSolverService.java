@@ -26,6 +26,18 @@ public class TspSolverService {
     @Value("${routing.solver.max-time-seconds:30}")
     private int maxTimeSeconds;
 
+    @Value("${routing.time-window.default-service-time-seconds:300}")
+    private long defaultServiceTimeSec;
+
+    @Value("${routing.time-window.avg-speed-kmh:30}")
+    private double avgSpeedKmh;
+
+    @Value("${routing.time-window.max-waiting-seconds:1800}")
+    private long maxWaitingSec;
+
+    @Value("${routing.time-window.horizon-hours:12}")
+    private int horizonHours;
+
     @PostConstruct
     public void init() {
         try {
@@ -64,7 +76,23 @@ public class TspSolverService {
      * @param distanceMatrix n×n matrix of distances between all nodes (in meters)
      * @return the optimized route order and total distance
      */
+    /**
+     * Solve TSP without time windows (backward compatible).
+     */
     public TspResult solve(double[][] distanceMatrix) {
+        return solve(distanceMatrix, null, defaultServiceTimeSec, avgSpeedMs());
+    }
+
+    /**
+     * Solve TSP with optional time window constraints.
+     *
+     * @param distanceMatrix N×N distance matrix (meters)
+     * @param timeWindows    per-node [startSec, endSec] pairs, or null for unconstrained
+     * @param serviceTimeSec time spent at each stop (seconds)
+     * @param avgSpeedMs     average travel speed for distance→time conversion (m/s)
+     */
+    public TspResult solve(double[][] distanceMatrix, long[][] timeWindows,
+                            long serviceTimeSec, double avgSpeedMs) {
         int n = distanceMatrix.length;
 
         if (n <= 1) {
@@ -91,7 +119,14 @@ public class TspSolverService {
         });
         routing.setArcCostEvaluatorOfAllVehicles(transitCallbackIndex);
 
-        // Step 3: Configure search parameters
+        // Step 3: Optional time dimension
+        if (hasTimeWindows(timeWindows)) {
+            log.info("TSP: time window dimension enabled for {} nodes", n);
+            addTimeDimension(routing, manager, distanceMatrix, timeWindows,
+                    serviceTimeSec, avgSpeedMs);
+        }
+
+        // Step 4: Configure search parameters
         RoutingSearchParameters searchParams = main.defaultRoutingSearchParameters()
                 .toBuilder()
                 .setFirstSolutionStrategy(FirstSolutionStrategy.Value.PATH_CHEAPEST_ARC)
@@ -102,7 +137,7 @@ public class TspSolverService {
                 .setLogSearch(false)
                 .build();
 
-        // Step 4: Solve
+        // Step 5: Solve
         Assignment solution = routing.solveWithParameters(searchParams);
 
         if (solution == null) {
@@ -137,8 +172,22 @@ public class TspSolverService {
      * @param maxCapacity    maximum capacity per vehicle (kg), 0 = no capacity constraint
      * @return per-vehicle routes, total distance, and solve status
      */
+    /**
+     * Solve VRP without time windows (backward compatible).
+     */
     public VrpResult solveVrp(double[][] distanceMatrix, int vehicleCount,
                                double[] demands, double maxCapacity) {
+        return solveVrp(distanceMatrix, vehicleCount, demands, maxCapacity,
+                null, defaultServiceTimeSec, avgSpeedMs());
+    }
+
+    /**
+     * Solve VRP with optional time window constraints.
+     */
+    public VrpResult solveVrp(double[][] distanceMatrix, int vehicleCount,
+                               double[] demands, double maxCapacity,
+                               long[][] timeWindows, long serviceTimeSec,
+                               double avgSpeedMs) {
         int n = distanceMatrix.length;
 
         if (n <= 1) {
@@ -173,7 +222,14 @@ public class TspSolverService {
             log.info("VRP: capacity dimension enabled (max {} kg per vehicle)", String.format("%.0f", maxCapacity));
         }
 
-        // Step 4: Configure search parameters
+        // Step 4: Optional time dimension
+        if (hasTimeWindows(timeWindows)) {
+            log.info("VRP: time window dimension enabled for {} nodes", n);
+            addTimeDimension(routing, manager, distanceMatrix, timeWindows,
+                    serviceTimeSec, avgSpeedMs);
+        }
+
+        // Step 5: Configure search parameters
         RoutingSearchParameters searchParams = main.defaultRoutingSearchParameters()
                 .toBuilder()
                 .setFirstSolutionStrategy(FirstSolutionStrategy.Value.PATH_CHEAPEST_ARC)
@@ -184,7 +240,7 @@ public class TspSolverService {
                 .setLogSearch(false)
                 .build();
 
-        // Step 5: Solve
+        // Step 6: Solve
         Assignment solution = routing.solveWithParameters(searchParams);
 
         if (solution == null) {
@@ -277,5 +333,74 @@ public class TspSolverService {
             total += matrix[route[i]][route[i + 1]];
         }
         return total;
+    }
+
+    /**
+     * Check if any node has a non-null time window.
+     */
+    private boolean hasTimeWindows(long[][] timeWindows) {
+        if (timeWindows == null) return false;
+        for (long[] tw : timeWindows) {
+            if (tw != null && tw.length >= 2) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Compute average speed in m/s from the configured km/h value.
+     */
+    private double avgSpeedMs() {
+        return avgSpeedKmh * 1000.0 / 3600.0;
+    }
+
+    /**
+     * Add a time dimension to the routing model.
+     *
+     * Each node with a time window constraint must be visited within
+     * [startSec, endSec]. The depot has a wide-open window.
+     */
+    private void addTimeDimension(RoutingModel routing, RoutingIndexManager manager,
+                                   double[][] distanceMatrix, long[][] timeWindows,
+                                   long serviceTimeSec, double avgSpeedMs) {
+        int n = distanceMatrix.length;
+
+        // Transit callback: travel_time + service_time (in seconds)
+        int timeCallbackIndex = routing.registerTransitCallback((long fromIdx, long toIdx) -> {
+            int from = manager.indexToNode(fromIdx);
+            int to = manager.indexToNode(toIdx);
+            double travelTimeSec = distanceMatrix[from][to] / avgSpeedMs;
+            return (long) travelTimeSec + serviceTimeSec;
+        });
+
+        // Compute horizon: max endTime + buffer
+        long maxEndTime = horizonHours * 3600L;
+        if (timeWindows != null) {
+            for (long[] tw : timeWindows) {
+                if (tw != null && tw.length >= 2 && tw[1] > maxEndTime) {
+                    maxEndTime = tw[1] + 3600; // add 1h buffer after last window
+                }
+            }
+        }
+
+        routing.addDimension(timeCallbackIndex,
+                maxWaitingSec,   // max slack (waiting time allowed)
+                maxEndTime,      // max cumulative time (horizon)
+                false,           // don't force cumul to start at zero
+                "Time");
+
+        // Set time window constraints per node
+        for (int i = 0; i < timeWindows.length && i < n; i++) {
+            if (timeWindows[i] != null && timeWindows[i].length >= 2) {
+                long index = manager.nodeToIndex(i);
+                if (index >= 0) {
+                    routing.getMutableDimension("Time")
+                           .cumulVar(index)
+                           .setRange(timeWindows[i][0], timeWindows[i][1]);
+                }
+            }
+        }
+
+        log.debug("Time dimension added: horizon={}s, serviceTime={}s, avgSpeed={}m/s, maxWaiting={}s",
+                maxEndTime, serviceTimeSec, String.format("%.1f", avgSpeedMs), maxWaitingSec);
     }
 }

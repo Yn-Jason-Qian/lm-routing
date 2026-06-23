@@ -2,6 +2,8 @@ package com.lm.routing.exception;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.context.MessageSource;
+import org.springframework.context.support.StaticMessageSource;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.validation.BeanPropertyBindingResult;
@@ -16,7 +18,13 @@ class GlobalExceptionHandlerTest {
 
     @BeforeEach
     void setUp() {
-        handler = new GlobalExceptionHandler();
+        StaticMessageSource ms = new StaticMessageSource();
+        java.util.Locale defaultLocale = java.util.Locale.getDefault();
+        ms.addMessage("error.not_found", defaultLocale, "error.not_found");
+        ms.addMessage("error.invalid_input", defaultLocale, "error.invalid_input");
+        ms.addMessage("error.solver_failed", defaultLocale, "error.solver_failed");
+        ms.addMessage("error.internal", defaultLocale, "Internal Server Error");
+        handler = new GlobalExceptionHandler(ms);
     }
 
     @Test
@@ -27,7 +35,7 @@ class GlobalExceptionHandlerTest {
         ProblemDetail pd = handler.handleNotFound(ex);
 
         assertEquals(HttpStatus.NOT_FOUND.value(), pd.getStatus());
-        assertEquals("Route Plan Not Found", pd.getTitle());
+        assertEquals("error.not_found", pd.getTitle());
         assertTrue(pd.getDetail().contains("plan-123"));
         assertNotNull(pd.getType());
     }
@@ -40,7 +48,7 @@ class GlobalExceptionHandlerTest {
         ProblemDetail pd = handler.handleInvalidInput(ex);
 
         assertEquals(HttpStatus.BAD_REQUEST.value(), pd.getStatus());
-        assertEquals("Invalid Input", pd.getTitle());
+        assertEquals("error.invalid_input", pd.getTitle());
         assertTrue(pd.getDetail().contains("500 stops"));
         assertNotNull(pd.getType());
     }
@@ -53,7 +61,7 @@ class GlobalExceptionHandlerTest {
         ProblemDetail pd = handler.handleSolverError(ex);
 
         assertEquals(HttpStatus.INTERNAL_SERVER_ERROR.value(), pd.getStatus());
-        assertEquals("Route Optimization Failed", pd.getTitle());
+        assertEquals("error.solver_failed", pd.getTitle());
         assertTrue(pd.getDetail().contains("Solver error"));
         assertNotNull(pd.getType());
     }

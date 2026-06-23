@@ -1,6 +1,8 @@
 package com.lm.routing.exception;
 
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.MessageSource;
+import org.springframework.context.i18n.LocaleContextHolder;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -8,17 +10,29 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import java.net.URI;
+import java.util.Locale;
 import java.util.stream.Collectors;
 
 @Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
+    private final MessageSource messageSource;
+
+    public GlobalExceptionHandler(MessageSource messageSource) {
+        this.messageSource = messageSource;
+    }
+
+    private String msg(String code, Object... args) {
+        Locale locale = LocaleContextHolder.getLocale();
+        return messageSource.getMessage(code, args, code, locale);
+    }
+
     @ExceptionHandler(RoutePlanException.NotFoundException.class)
     public ProblemDetail handleNotFound(RoutePlanException.NotFoundException ex) {
         log.warn("Not found: {}", ex.getMessage());
         ProblemDetail pd = ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, ex.getMessage());
-        pd.setTitle("Route Plan Not Found");
+        pd.setTitle(msg("error.not_found", ex.getMessage()));
         pd.setType(URI.create("https://lm-routing.dev/errors/not-found"));
         return pd;
     }
@@ -27,7 +41,7 @@ public class GlobalExceptionHandler {
     public ProblemDetail handleInvalidInput(RoutePlanException.InvalidInputException ex) {
         log.warn("Invalid input: {}", ex.getMessage());
         ProblemDetail pd = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, ex.getMessage());
-        pd.setTitle("Invalid Input");
+        pd.setTitle(msg("error.invalid_input", ex.getMessage()));
         pd.setType(URI.create("https://lm-routing.dev/errors/invalid-input"));
         return pd;
     }
@@ -37,7 +51,7 @@ public class GlobalExceptionHandler {
         log.error("Solver error: {}", ex.getMessage(), ex);
         ProblemDetail pd = ProblemDetail.forStatusAndDetail(
                 HttpStatus.INTERNAL_SERVER_ERROR, ex.getMessage());
-        pd.setTitle("Route Optimization Failed");
+        pd.setTitle(msg("error.solver_failed", ex.getMessage()));
         pd.setType(URI.create("https://lm-routing.dev/errors/solver-error"));
         return pd;
     }
@@ -59,7 +73,7 @@ public class GlobalExceptionHandler {
         log.error("Unexpected error: {}", ex.getMessage(), ex);
         ProblemDetail pd = ProblemDetail.forStatusAndDetail(
                 HttpStatus.INTERNAL_SERVER_ERROR, "An unexpected error occurred");
-        pd.setTitle("Internal Server Error");
+        pd.setTitle(msg("error.internal", ""));
         pd.setType(URI.create("https://lm-routing.dev/errors/internal"));
         return pd;
     }

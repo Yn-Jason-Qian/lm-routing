@@ -104,7 +104,7 @@ class RoutePlanControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.title").value("Invalid Input"));
+                .andExpect(jsonPath("$.title").value("输入无效：Maximum 500 stops supported, got 501"));
     }
 
     // ===== GET /api/v1/route-plans/{planId} =====
@@ -135,7 +135,7 @@ class RoutePlanControllerTest {
 
         mockMvc.perform(get("/api/v1/route-plans/nonexistent"))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.title").value("Route Plan Not Found"));
+                .andExpect(jsonPath("$.title").value("未找到路线规划：Route plan not found: nonexistent"));
     }
 
     // ===== GET /api/v1/route-plans/{planId}/status =====

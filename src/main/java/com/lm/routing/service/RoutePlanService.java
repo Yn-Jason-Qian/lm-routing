@@ -102,7 +102,42 @@ public class RoutePlanService {
                     planId, matrixResult.strategy(), n, n,
                     matrixResult.isRealRoad(), matrixResult.costElements());
 
-            // === Phase 2: TSP Solving ===
+            // === Phase 2: TSP or VRP Solving ===
+            int vehicleCount = plan.getVehicleCount() != null ? plan.getVehicleCount() : 1;
+            boolean isVrp = vehicleCount > 1;
+
+            if (isVrp) {
+                plan.updateProgress(PlanStatus.SOLVING_TSP,
+                        "Optimizing multi-vehicle routes with OR-Tools VRP", 15);
+                planRepo.save(plan);
+
+                // Collect demands for capacity constraint
+                double[] demands = collectDemands(allPoints, plan);
+                double maxCapacity = plan.getMaxCapacityKg() != null ? plan.getMaxCapacityKg() : 0;
+
+                TspSolverService.VrpResult vrpResult = tspSolver.solveVrp(
+                        distanceMatrix, vehicleCount, demands, maxCapacity);
+                List<int[]> vehicleRoutes = vrpResult.routes();
+
+                log.info("{}: VRP solved: {} vehicles, {} nodes, distance={}m, optimal={}",
+                        planId, vehicleRoutes.size(), n,
+                        String.format("%.0f", vrpResult.totalDistance()), vrpResult.solved());
+
+                // Build multi-vehicle result
+                boolean isFallback = !matrixResult.isRealRoad();
+                RouteResult result = buildVrpResult(plan, vehicleRoutes, allPoints,
+                        distanceMatrix, matrixResult, isFallback);
+                plan.setResult(result);
+                plan.markCompleted();
+                planRepo.save(plan);
+
+                log.info("{}: VRP route planning completed: {}m, {} vehicles",
+                        planId, result.getTotalDistanceMeters(),
+                        result.getVehicleRoutes().size());
+                return; // VRP path ends here (skips refinement for now)
+            }
+
+            // === TSP path (single vehicle) ===
             plan.updateProgress(PlanStatus.SOLVING_TSP, "Optimizing route order with OR-Tools", 15);
             planRepo.save(plan);
 
@@ -191,7 +226,8 @@ public class RoutePlanService {
 
             log.info("{}: Route planning completed: {}m, {} segments",
                     planId, result.getTotalDistanceMeters(),
-                    result.getSegments().size());
+                    result.getVehicleRoutes().stream()
+                            .mapToInt(vr -> vr.getSegments().size()).sum());
 
         } catch (Exception e) {
             log.error("{}: Route planning failed: {}", planId, e.getMessage(), e);
@@ -221,6 +257,153 @@ public class RoutePlanService {
 
     // ===== Private Helpers =====
 
+    /**
+     * Collect per-node demand (weightKg) for capacity-constrained VRP.
+     * Index 0 = warehouse (0 demand), indices 1..n-1 = stop weights.
+     */
+    private double[] collectDemands(List<GeoPoint> allPoints, RoutePlan plan) {
+        int n = allPoints.size();
+        double[] demands = new double[n];
+        demands[0] = 0; // warehouse has no demand
+        for (int i = 1; i < n; i++) {
+            int stopIdx = i - 1;
+            if (stopIdx < plan.getStops().size()) {
+                Double w = plan.getStops().get(stopIdx).getWeightKg();
+                demands[i] = (w != null) ? w : 0.0;
+            }
+        }
+        return demands;
+    }
+
+    /**
+     * Build a multi-vehicle RouteResult from VRP solver output.
+     */
+    private RouteResult buildVrpResult(RoutePlan plan,
+                                        List<int[]> vehicleRoutes,
+                                        List<GeoPoint> points,
+                                        double[][] distanceMatrix,
+                                        com.lm.routing.service.provider.MatrixResult matrixResult,
+                                        boolean isFallback) {
+
+        long totalDist = 0;
+        long totalDur = 0;
+        List<VehicleRoute> vRoutes = new ArrayList<>();
+
+        for (int v = 0; v < vehicleRoutes.size(); v++) {
+            int[] route = vehicleRoutes.get(v);
+            List<RouteSegment> segments = new ArrayList<>();
+            long vehicleDist = 0;
+            long vehicleDur = 0;
+
+            for (int i = 0; i < route.length - 1; i++) {
+                int fromIdx = route[i];
+                int toIdx = route[i + 1];
+                GeoPoint from = points.get(fromIdx);
+                GeoPoint to = points.get(toIdx);
+
+                long dist = Math.round(distanceMatrix[fromIdx][toIdx]);
+                Long dur = matrixResult.isRealRoad()
+                        ? Math.round(dist / 8.3)
+                        : null;
+
+                RouteSegment seg = RouteSegment.builder()
+                        .seq(i)
+                        .fromStopId(getStopId(plan, fromIdx))
+                        .toStopId(getStopId(plan, toIdx))
+                        .fromLat(from.getLat()).fromLng(from.getLng())
+                        .toLat(to.getLat()).toLng(to.getLng())
+                        .distanceMeters(dist)
+                        .durationSeconds(dur)
+                        .build();
+                segments.add(seg);
+                vehicleDist += dist;
+                if (dur != null) vehicleDur += dur;
+            }
+
+            VehicleRoute vRoute = VehicleRoute.builder()
+                    .vehicleIndex(v)
+                    .totalDistanceMeters(vehicleDist)
+                    .totalDurationSeconds(isFallback ? null : vehicleDur)
+                    .segments(segments)
+                    .build();
+            segments.forEach(s -> s.setVehicleRoute(vRoute));
+            vRoutes.add(vRoute);
+            totalDist += vehicleDist;
+            if (!isFallback) totalDur += vehicleDur;
+        }
+
+        RouteResult result = RouteResult.builder()
+                .resultId(java.util.UUID.randomUUID().toString())
+                .totalDistanceMeters(totalDist)
+                .totalDurationSeconds(isFallback ? null : totalDur)
+                .fallback(isFallback)
+                .vehicleRoutes(vRoutes)
+                .routePlan(plan)
+                .build();
+
+        vRoutes.forEach(vr -> vr.setRouteResult(result));
+        return result;
+    }
+
+    /**
+     * Build the final RouteResult for single-vehicle TSP.
+     */
+    private RouteResult buildTspResult(RoutePlan plan,
+                                        int[] order, List<GeoPoint> points,
+                                        double[][] distanceMatrix,
+                                        com.lm.routing.service.provider.MatrixResult matrixResult,
+                                        boolean isFallback) {
+
+        List<RouteSegment> segments = new ArrayList<>();
+        long totalDist = 0;
+        long totalDur = 0;
+
+        for (int i = 0; i < order.length - 1; i++) {
+            int fromIdx = order[i];
+            int toIdx = order[i + 1];
+            GeoPoint from = points.get(fromIdx);
+            GeoPoint to = points.get(toIdx);
+
+            long dist = Math.round(distanceMatrix[fromIdx][toIdx]);
+            Long dur = matrixResult.isRealRoad()
+                    ? Math.round(dist / 8.3)
+                    : null;
+
+            RouteSegment seg = RouteSegment.builder()
+                    .seq(i)
+                    .fromStopId(getStopId(plan, fromIdx))
+                    .toStopId(getStopId(plan, toIdx))
+                    .fromLat(from.getLat()).fromLng(from.getLng())
+                    .toLat(to.getLat()).toLng(to.getLng())
+                    .distanceMeters(dist)
+                    .durationSeconds(dur)
+                    .build();
+            segments.add(seg);
+            totalDist += dist;
+            if (dur != null) totalDur += dur;
+        }
+
+        VehicleRoute vRoute = VehicleRoute.builder()
+                .vehicleIndex(0)
+                .totalDistanceMeters(totalDist)
+                .totalDurationSeconds(isFallback ? null : totalDur)
+                .segments(segments)
+                .build();
+        segments.forEach(s -> s.setVehicleRoute(vRoute));
+
+        RouteResult result = RouteResult.builder()
+                .resultId(java.util.UUID.randomUUID().toString())
+                .totalDistanceMeters(totalDist)
+                .totalDurationSeconds(isFallback ? null : totalDur)
+                .fallback(isFallback)
+                .vehicleRoutes(List.of(vRoute))
+                .routePlan(plan)
+                .build();
+
+        vRoute.setRouteResult(result);
+        return result;
+    }
+
     private RoutePlan buildPlanEntity(RoutePlanRequest request) {
         RoutePlanRequest.RouteOptions opts = request.getOptions();
         if (opts == null) opts = new RoutePlanRequest.RouteOptions();
@@ -233,6 +416,8 @@ public class RoutePlanService {
                 .warehouseLng(request.getWarehouse().getLng())
                 .avoidTolls(opts.getAvoidTolls() != null ? opts.getAvoidTolls() : false)
                 .returnToWarehouse(opts.getReturnToWarehouse() != null ? opts.getReturnToWarehouse() : false)
+                .vehicleCount(opts.getVehicleCount() != null ? opts.getVehicleCount() : 1)
+                .maxCapacityKg(opts.getMaxCapacityKg())
                 .status(PlanStatus.PENDING)
                 .progress(0)
                 .createdAt(Instant.now())
@@ -421,7 +606,6 @@ public class RoutePlanService {
         long totalDur = 0;
 
         if (!realSegments.isEmpty()) {
-            // AMap waypoint segments have full detail
             for (AmapRouteService.RouteSegmentInfo rsi : realSegments) {
                 RouteSegment seg = RouteSegment.builder()
                         .seq(rsi.getSeq())
@@ -438,7 +622,6 @@ public class RoutePlanService {
                 totalDur += rsi.getDurationSeconds();
             }
         } else {
-            // Build segments from the distance matrix (OSRM/Google/Haversine)
             for (int i = 0; i < order.length - 1; i++) {
                 int fromIdx = order[i];
                 int toIdx = order[i + 1];
@@ -465,16 +648,25 @@ public class RoutePlanService {
             }
         }
 
+        // Wrap in a single VehicleRoute
+        VehicleRoute vRoute = VehicleRoute.builder()
+                .vehicleIndex(0)
+                .totalDistanceMeters(totalDist)
+                .totalDurationSeconds(isFallback ? null : totalDur)
+                .segments(segments)
+                .build();
+        segments.forEach(s -> s.setVehicleRoute(vRoute));
+
         RouteResult result = RouteResult.builder()
                 .resultId(UUID.randomUUID().toString())
                 .totalDistanceMeters(totalDist)
                 .totalDurationSeconds(isFallback ? null : totalDur)
                 .fallback(isFallback)
-                .segments(segments)
+                .vehicleRoutes(List.of(vRoute))
                 .routePlan(plan)
                 .build();
 
-        segments.forEach(s -> s.setRouteResult(result));
+        vRoute.setRouteResult(result);
         return result;
     }
 
@@ -524,16 +716,25 @@ public class RoutePlanService {
             }
         }
 
+        // Wrap in VehicleRoute for backward compatibility
+        VehicleRoute vRoute = VehicleRoute.builder()
+                .vehicleIndex(0)
+                .totalDistanceMeters(totalDist)
+                .totalDurationSeconds(fallback ? null : totalDur)
+                .segments(segments)
+                .build();
+        segments.forEach(s -> s.setVehicleRoute(vRoute));
+
         RouteResult result = RouteResult.builder()
                 .resultId(UUID.randomUUID().toString())
                 .totalDistanceMeters(totalDist)
                 .totalDurationSeconds(fallback ? null : totalDur)
                 .fallback(fallback)
-                .segments(segments)
+                .vehicleRoutes(java.util.List.of(vRoute))
                 .routePlan(plan)
                 .build();
 
-        segments.forEach(s -> s.setRouteResult(result));
+        vRoute.setRouteResult(result);
         return result;
     }
 
@@ -616,31 +817,47 @@ public class RoutePlanService {
         }
 
         RoutePlanResponse.RouteInfo routeInfo = null;
+        List<RoutePlanResponse.VehicleRouteInfo> vehicleRouteInfos = null;
         if (plan.getResult() != null) {
             RouteResult result = plan.getResult();
-            List<RoutePlanResponse.SegmentInfo> segInfos = new ArrayList<>();
-            if (result.getSegments() != null) {
-                for (RouteSegment seg : result.getSegments()) {
-                    segInfos.add(RoutePlanResponse.SegmentInfo.builder()
-                            .seq(seg.getSeq())
-                            .fromStopId(seg.getFromStopId())
-                            .toStopId(seg.getToStopId())
-                            .fromLat(seg.getFromLat())
-                            .fromLng(seg.getFromLng())
-                            .toLat(seg.getToLat())
-                            .toLng(seg.getToLng())
-                            .distanceMeters(seg.getDistanceMeters())
-                            .durationSeconds(seg.getDurationSeconds())
-                            .polyline(seg.getPolyline())
+
+            if (result.getVehicleRoutes() != null && !result.getVehicleRoutes().isEmpty()) {
+                vehicleRouteInfos = new ArrayList<>();
+                for (VehicleRoute vr : result.getVehicleRoutes()) {
+                    List<RoutePlanResponse.SegmentInfo> segInfos = new ArrayList<>();
+                    if (vr.getSegments() != null) {
+                        for (RouteSegment seg : vr.getSegments()) {
+                            segInfos.add(RoutePlanResponse.SegmentInfo.builder()
+                                    .seq(seg.getSeq())
+                                    .fromStopId(seg.getFromStopId())
+                                    .toStopId(seg.getToStopId())
+                                    .fromLat(seg.getFromLat())
+                                    .fromLng(seg.getFromLng())
+                                    .toLat(seg.getToLat())
+                                    .toLng(seg.getToLng())
+                                    .distanceMeters(seg.getDistanceMeters())
+                                    .durationSeconds(seg.getDurationSeconds())
+                                    .polyline(seg.getPolyline())
+                                    .build());
+                        }
+                    }
+                    vehicleRouteInfos.add(RoutePlanResponse.VehicleRouteInfo.builder()
+                            .vehicleIndex(vr.getVehicleIndex())
+                            .totalDistanceMeters(vr.getTotalDistanceMeters())
+                            .totalDurationSeconds(vr.getTotalDurationSeconds())
+                            .segments(segInfos)
                             .build());
                 }
+
+                // First vehicle route becomes the backward-compatible single route
+                RoutePlanResponse.VehicleRouteInfo first = vehicleRouteInfos.get(0);
+                routeInfo = RoutePlanResponse.RouteInfo.builder()
+                        .totalDistanceMeters(first.getTotalDistanceMeters())
+                        .totalDurationSeconds(first.getTotalDurationSeconds())
+                        .fallback(result.getFallback())
+                        .segments(first.getSegments())
+                        .build();
             }
-            routeInfo = RoutePlanResponse.RouteInfo.builder()
-                    .totalDistanceMeters(result.getTotalDistanceMeters())
-                    .totalDurationSeconds(result.getTotalDurationSeconds())
-                    .fallback(result.getFallback())
-                    .segments(segInfos)
-                    .build();
         }
 
         return RoutePlanResponse.builder()
@@ -651,6 +868,8 @@ public class RoutePlanService {
                 .warehouse(warehouseInfo)
                 .stops(stopInfos)
                 .route(routeInfo)
+                .routes(vehicleRouteInfos != null && vehicleRouteInfos.size() > 1
+                        ? vehicleRouteInfos : null)  // only show routes[] when multi-vehicle
                 .createdAt(plan.getCreatedAt())
                 .completedAt(plan.getCompletedAt())
                 .build();

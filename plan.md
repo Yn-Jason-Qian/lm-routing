@@ -15,24 +15,16 @@
 
 ---
 
-## 开发中
-
-### Phase 1: VRP 多车辆路径规划
+### Phase 1: VRP 多车辆路径规划 ✅ (已完成)
 
 **目标**：从单车辆 TSP 升级为多车辆 VRP（Vehicle Routing Problem），支持车队调度。
 
-**数据模型已就绪**：
-- `RoutePlan.vehicleCount` — 车辆数量
-- `RoutePlan.maxCapacityKg` — 单车最大载重
-
-**实现步骤**：
-
-| # | 任务 | 说明 | 预估 |
-|---|------|------|------|
-| 1.1 | **VRP 求解器** | 替换 OR-Tools TSP → VRP（PathCheapestArc + GuidedLocalSearch），支持车辆数 + 容量约束 | 3d |
-| 1.2 | **多路线结果模型** | `RouteResult` 1:N 扩展，每条路线对应一辆车 | 1d |
-| 1.3 | **API 响应适配** | 单路线 → 多路线（`routes[]` 数组），每车独立距离/时长/段 | 1d |
-| 1.4 | **测试覆盖** | VRP 求解正确性、车辆数边界、容量约束 | 2d |
+**已完成**：
+- [x] `TspSolverService.solveVrp()` — OR-Tools 多车辆 + 容量维度
+- [x] `VehicleRoute` 实体 + `RouteResult`/`RouteSegment` 关联更新
+- [x] API 向后兼容：`route`（单）+ `routes[]`（多）
+- [x] 容量约束可选启用
+- [x] 6 个 VRP 测试，58/58 通过
 
 ---
 

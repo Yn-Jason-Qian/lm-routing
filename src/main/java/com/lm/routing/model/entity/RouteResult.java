@@ -32,10 +32,10 @@ public class RouteResult {
     private Boolean fallback = false;
 
     @OneToMany(mappedBy = "routeResult", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
-    @OrderBy("seq ASC")
+    @OrderBy("vehicleIndex ASC")
     @Builder.Default
     @ToString.Exclude
-    private List<RouteSegment> segments = new ArrayList<>();
+    private List<VehicleRoute> vehicleRoutes = new ArrayList<>();
 
     @OneToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "route_plan_id")

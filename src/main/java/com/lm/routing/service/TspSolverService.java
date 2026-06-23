@@ -49,6 +49,15 @@ public class TspSolverService {
     public record TspResult(int[] route, double totalDistance, boolean solved) {}
 
     /**
+     * Result of VRP solving.
+     *
+     * @param routes list of per-vehicle routes, each an ordered node index array
+     * @param totalDistance sum of all vehicle route distances
+     * @param solved whether the solver found a proven optimal solution
+     */
+    public record VrpResult(List<int[]> routes, double totalDistance, boolean solved) {}
+
+    /**
      * Solve TSP for the given distance matrix.
      * Node 0 is the depot (warehouse). The route always starts from node 0.
      *
@@ -112,6 +121,129 @@ public class TspSolverService {
         log.info("TSP solved: {} nodes, total distance = {} m, optimal = {}",
                 n, String.format("%.0f", totalDistance), solved);
         return new TspResult(route, totalDistance, solved);
+    }
+
+    /**
+     * Solve VRP (Vehicle Routing Problem) for multi-vehicle delivery.
+     *
+     * Uses the same distance matrix as TSP, but distributes stops across
+     * {@code vehicleCount} vehicles, all starting/ending at the depot (node 0).
+     * Optionally enforces capacity constraints when {@code maxCapacity > 0}
+     * and stops have non-zero demands.
+     *
+     * @param distanceMatrix N×N distance matrix (meters), depot at index 0
+     * @param vehicleCount   number of available vehicles
+     * @param demands        per-node demand (kg), index 0 = 0 (depot has no demand)
+     * @param maxCapacity    maximum capacity per vehicle (kg), 0 = no capacity constraint
+     * @return per-vehicle routes, total distance, and solve status
+     */
+    public VrpResult solveVrp(double[][] distanceMatrix, int vehicleCount,
+                               double[] demands, double maxCapacity) {
+        int n = distanceMatrix.length;
+
+        if (n <= 1) {
+            return new VrpResult(List.of(), 0.0, true);
+        }
+
+        log.info("Solving VRP: {} nodes, {} vehicles, maxCapacity={}kg, {}s limit",
+                n, vehicleCount, maxCapacity > 0 ? String.format("%.0f", maxCapacity) : "none",
+                maxTimeSeconds);
+
+        // Step 1: Create routing model with multiple vehicles, depot at node 0
+        RoutingIndexManager manager = new RoutingIndexManager(n, vehicleCount, 0);
+        RoutingModel routing = new RoutingModel(manager);
+
+        // Step 2: Register distance callback
+        int transitCallbackIndex = routing.registerTransitCallback((fromIndex, toIndex) -> {
+            int from = manager.indexToNode(fromIndex);
+            int to = manager.indexToNode(toIndex);
+            return Math.round(distanceMatrix[from][to]);
+        });
+        routing.setArcCostEvaluatorOfAllVehicles(transitCallbackIndex);
+
+        // Step 3: Optional capacity dimension
+        boolean hasCapacity = maxCapacity > 0 && hasNonZeroDemands(demands);
+        if (hasCapacity) {
+            int demandCallbackIndex = routing.registerUnaryTransitCallback((long fromIndex) -> {
+                int fromNode = manager.indexToNode(fromIndex);
+                return (long) demands[fromNode];
+            });
+            routing.addDimension(demandCallbackIndex, 0, (long) maxCapacity,
+                    true, "Capacity");
+            log.info("VRP: capacity dimension enabled (max {} kg per vehicle)", String.format("%.0f", maxCapacity));
+        }
+
+        // Step 4: Configure search parameters
+        RoutingSearchParameters searchParams = main.defaultRoutingSearchParameters()
+                .toBuilder()
+                .setFirstSolutionStrategy(FirstSolutionStrategy.Value.PATH_CHEAPEST_ARC)
+                .setLocalSearchMetaheuristic(
+                        LocalSearchMetaheuristic.Value.GUIDED_LOCAL_SEARCH)
+                .setTimeLimit(com.google.protobuf.Duration.newBuilder()
+                        .setSeconds(maxTimeSeconds).build())
+                .setLogSearch(false)
+                .build();
+
+        // Step 5: Solve
+        Assignment solution = routing.solveWithParameters(searchParams);
+
+        if (solution == null) {
+            log.warn("OR-Tools VRP returned null solution for {} nodes", n);
+            // Fallback: assign all stops to vehicle 0
+            int[] fallbackRoute = new int[n];
+            for (int i = 0; i < n; i++) fallbackRoute[i] = i;
+            double totalDist = computeRouteDistance(fallbackRoute, distanceMatrix);
+            return new VrpResult(List.of(fallbackRoute), totalDist, false);
+        }
+
+        // Step 6: Extract per-vehicle routes
+        List<int[]> routes = new ArrayList<>();
+        double totalDistance = 0.0;
+
+        for (int v = 0; v < vehicleCount; v++) {
+            int[] route = extractRouteForVehicle(routing, manager, solution, v);
+            if (route.length >= 2) {
+                double routeDist = computeRouteDistance(route, distanceMatrix);
+                totalDistance += routeDist;
+                routes.add(route);
+            }
+        }
+
+        boolean solved = routing.solver() != null;
+        log.info("VRP solved: {} vehicles used (of {}), total distance = {} m, optimal = {}",
+                routes.size(), vehicleCount, String.format("%.0f", totalDistance), solved);
+        return new VrpResult(routes, totalDistance, solved);
+    }
+
+    /**
+     * Check if any demand value is > 0 (capacity constraint is meaningful).
+     */
+    private boolean hasNonZeroDemands(double[] demands) {
+        if (demands == null) return false;
+        for (double d : demands) {
+            if (d > 0) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Extract the ordered list of node indices for a single vehicle from the VRP solution.
+     */
+    private int[] extractRouteForVehicle(RoutingModel routing, RoutingIndexManager manager,
+                                          Assignment solution, int vehicle) {
+        List<Integer> routeList = new ArrayList<>();
+        long index = routing.start(vehicle);
+        while (!routing.isEnd(index)) {
+            int node = manager.indexToNode((int) index);
+            routeList.add(node);
+            index = solution.value(routing.nextVar(index));
+        }
+        int finalNode = manager.indexToNode((int) index);
+        if (routeList.isEmpty() || routeList.get(routeList.size() - 1) != finalNode) {
+            routeList.add(finalNode);
+        }
+
+        return routeList.stream().mapToInt(Integer::intValue).toArray();
     }
 
     /**

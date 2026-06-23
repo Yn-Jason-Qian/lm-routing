@@ -68,5 +68,11 @@ public class RoutePlanRequest {
         private Boolean avoidTolls = false;
         private Boolean returnToWarehouse = false;
         private Integer maxSolveTimeSeconds = 30;
+
+        /** Number of vehicles available (default 1 = single-vehicle TSP). */
+        private Integer vehicleCount = 1;
+
+        /** Maximum load capacity per vehicle in kg. Enables capacity-constrained VRP when > 0. */
+        private Double maxCapacityKg;
     }
 }

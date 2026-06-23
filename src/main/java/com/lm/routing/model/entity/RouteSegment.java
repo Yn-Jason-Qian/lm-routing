@@ -50,7 +50,7 @@ public class RouteSegment {
     private String polyline;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "route_result_id")
+    @JoinColumn(name = "vehicle_route_id")
     @ToString.Exclude
-    private RouteResult routeResult;
+    private VehicleRoute vehicleRoute;
 }

@@ -19,7 +19,15 @@ public class RoutePlanResponse {
 
     private WarehouseInfo warehouse;
     private List<StopInfo> stops;
+
+    /** Single-vehicle route (backward compatible, populated when vehicleCount=1). */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     private RouteInfo route;
+
+    /** Multi-vehicle routes (populated when vehicleCount > 1). */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private List<VehicleRouteInfo> routes;
+
     private Instant createdAt;
     private Instant completedAt;
 
@@ -69,5 +77,15 @@ public class RoutePlanResponse {
         private Long distanceMeters;
         private Long durationSeconds;
         private String polyline;
+    }
+
+    @Data
+    @Builder
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public static class VehicleRouteInfo {
+        private Integer vehicleIndex;
+        private Long totalDistanceMeters;
+        private Long totalDurationSeconds;
+        private List<SegmentInfo> segments;
     }
 }

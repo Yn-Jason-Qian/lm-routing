@@ -1,0 +1,15 @@
+target/
+*.class
+*.jar
+*.log
+.git/
+.idea/
+.vscode/
+.settings/
+.project
+.classpath
+.DS_Store
+.claude/
+*.db
+*.pid
+osm-data/

@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
 
+import com.lm.routing.service.provider.RouteSegmentInfo;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -49,21 +50,6 @@ public class AmapRouteService {
     }
 
     /**
-     * A single segment of the driving route between two consecutive waypoints.
-     */
-    @Data
-    public static class RouteSegmentInfo {
-        private int seq;
-        private String fromStopId;
-        private String toStopId;
-        private double fromLat, fromLng;
-        private double toLat, toLng;
-        private long distanceMeters;
-        private long durationSeconds;
-        private String polyline;
-    }
-
-    /**
      * Fetch real road route segments for a batch of waypoints.
      *
      * @param originLat  origin latitude
@@ -73,7 +59,7 @@ public class AmapRouteService {
      * @param waypoints  list of intermediate waypoint coordinates [lat,lng,lat,lng,...]
      * @return list of segment info between consecutive points, or empty list on failure
      */
-    public List<RouteSegmentInfo> fetchRouteSegments(
+    public List<com.lm.routing.service.provider.RouteSegmentInfo> fetchRouteSegments(
             double originLat, double originLng,
             double destLat, double destLng,
             List<Double> waypoints) {

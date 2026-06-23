@@ -233,7 +233,7 @@ public class RouteRefinementService {
         }
 
         // 2. Try AMap API
-        List<AmapRouteService.RouteSegmentInfo> segments =
+        List<com.lm.routing.service.provider.RouteSegmentInfo> segments =
                 amapRouteService.fetchRouteSegments(
                         a.getLat(), a.getLng(),
                         b.getLat(), b.getLng(),

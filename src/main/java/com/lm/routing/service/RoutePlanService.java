@@ -166,7 +166,7 @@ public class RoutePlanService {
             }
 
             // === Phase 3: Fetch Real Road Distances (only for Haversine-based strategies) ===
-            List<AmapRouteService.RouteSegmentInfo> realSegments = List.of();
+            List<com.lm.routing.service.provider.RouteSegmentInfo> realSegments = List.of();
 
             if (!matrixResult.isRealRoad()) {
                 updateAndPush(plan, PlanStatus.REFINING,
@@ -539,10 +539,10 @@ public class RoutePlanService {
      * Fetch real road distances by calling AMap API in batches of maxWaypointsPerCall.
      * 200 stops → ceil(200/30) ≈ 7 parallel AMap calls.
      */
-    private List<AmapRouteService.RouteSegmentInfo> fetchRealDistancesFromAmap(
+    private List<com.lm.routing.service.provider.RouteSegmentInfo> fetchRealDistancesFromAmap(
             List<GeoPoint> points, int[] order, RoutePlan plan) {
 
-        List<CompletableFuture<List<AmapRouteService.RouteSegmentInfo>>> futures = new ArrayList<>();
+        List<CompletableFuture<List<com.lm.routing.service.provider.RouteSegmentInfo>>> futures = new ArrayList<>();
         int n = order.length;
 
         // Split the ordered route into batches
@@ -553,7 +553,7 @@ public class RoutePlanService {
             final int bs = batchStart;
             final int be = batchEnd;
 
-            CompletableFuture<List<AmapRouteService.RouteSegmentInfo>> future =
+            CompletableFuture<List<com.lm.routing.service.provider.RouteSegmentInfo>> future =
                     CompletableFuture.supplyAsync(() -> {
                         GeoPoint origin = points.get(order[bs]);
                         GeoPoint dest = points.get(order[be]);
@@ -577,7 +577,7 @@ public class RoutePlanService {
         }
 
         // Wait for all parallel calls
-        List<AmapRouteService.RouteSegmentInfo> allSegments = futures.stream()
+        List<com.lm.routing.service.provider.RouteSegmentInfo> allSegments = futures.stream()
                 .map(CompletableFuture::join)
                 .flatMap(List::stream)
                 .collect(Collectors.toList());
@@ -585,7 +585,7 @@ public class RoutePlanService {
         // Re-number segments sequentially and fill stop IDs
         Map<Integer, String> indexToStopId = buildIndexToStopIdMap(plan, order);
         for (int i = 0; i < allSegments.size(); i++) {
-            AmapRouteService.RouteSegmentInfo seg = allSegments.get(i);
+            com.lm.routing.service.provider.RouteSegmentInfo seg = allSegments.get(i);
             seg.setSeq(i);
             // Map coordinates back to stop IDs
             seg.setFromStopId(findStopId(points, order, seg.getFromLat(), seg.getFromLng(), plan));
@@ -605,7 +605,7 @@ public class RoutePlanService {
      * Fetch real road distances via AWS Route Calculator.
      * Converts AWS segments to AMap-compatible format for unified downstream processing.
      */
-    private List<AmapRouteService.RouteSegmentInfo> fetchRealDistancesFromAws(
+    private List<com.lm.routing.service.provider.RouteSegmentInfo> fetchRealDistancesFromAws(
             List<GeoPoint> points, int[] order, RoutePlan plan,
             AwsMapsWaypointsProvider awsProvider) {
 
@@ -647,12 +647,12 @@ public class RoutePlanService {
                 .collect(Collectors.toList());
 
         // Convert to AMap-compatible format
-        List<AmapRouteService.RouteSegmentInfo> allSegments = new ArrayList<>();
+        List<com.lm.routing.service.provider.RouteSegmentInfo> allSegments = new ArrayList<>();
         Map<Integer, String> indexToStopId = buildIndexToStopIdMap(plan, order);
         for (int i = 0; i < allAwsSegments.size(); i++) {
             com.lm.routing.service.provider.RouteSegmentInfo awsSeg = allAwsSegments.get(i);
 
-            AmapRouteService.RouteSegmentInfo seg = new AmapRouteService.RouteSegmentInfo();
+            com.lm.routing.service.provider.RouteSegmentInfo seg = new com.lm.routing.service.provider.RouteSegmentInfo();
             seg.setSeq(i);
             seg.setDistanceMeters(awsSeg.getDistanceMeters());
             seg.setDurationSeconds(awsSeg.getDurationSeconds());
@@ -679,7 +679,7 @@ public class RoutePlanService {
      * Build the final RouteResult from the refined order and distance data.
      */
     private RouteResult buildResultV2(RoutePlan plan,
-                                       List<AmapRouteService.RouteSegmentInfo> realSegments,
+                                       List<com.lm.routing.service.provider.RouteSegmentInfo> realSegments,
                                        int[] order, List<GeoPoint> points,
                                        double[][] distanceMatrix,
                                        MatrixResult matrixResult,
@@ -690,7 +690,7 @@ public class RoutePlanService {
         long totalDur = 0;
 
         if (!realSegments.isEmpty()) {
-            for (AmapRouteService.RouteSegmentInfo rsi : realSegments) {
+            for (com.lm.routing.service.provider.RouteSegmentInfo rsi : realSegments) {
                 RouteSegment seg = RouteSegment.builder()
                         .seq(rsi.getSeq())
                         .fromStopId(rsi.getFromStopId())
@@ -756,7 +756,7 @@ public class RoutePlanService {
 
     /** @deprecated kept for backward compatibility; prefer buildResultV2 */
     private RouteResult buildResult(RoutePlan plan,
-                                     List<AmapRouteService.RouteSegmentInfo> realSegments,
+                                     List<com.lm.routing.service.provider.RouteSegmentInfo> realSegments,
                                      int[] order, List<GeoPoint> points) {
 
         List<RouteSegment> segments = new ArrayList<>();
@@ -783,7 +783,7 @@ public class RoutePlanService {
                 totalDist += (long) dist;
             }
         } else {
-            for (AmapRouteService.RouteSegmentInfo rsi : realSegments) {
+            for (com.lm.routing.service.provider.RouteSegmentInfo rsi : realSegments) {
                 RouteSegment seg = RouteSegment.builder()
                         .seq(rsi.getSeq())
                         .fromStopId(rsi.getFromStopId())

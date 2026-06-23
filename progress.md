@@ -87,10 +87,10 @@ Phase 6: 增强与运维           ✅ █████████████�
 
 | ID | 项目 | 状态 | 优先级 |
 |----|------|------|--------|
-| T1 | `DistanceMatrixProvider` 废弃类清理 | 📋 待处理 | 低 |
-| T2 | `RouteSegmentInfo` 类型统一（AMap → 共享类型） | 📋 待处理 | 低 |
-| T3 | ProviderSelector + CountryDetector 集成测试 | 📋 待处理 | 中 |
-| T4 | `AwsMapsService` polyline 解码器完善 | 📋 待处理 | 中 |
+| T1 | `DistanceMatrixProvider` 废弃类清理 | ✅ 已解决 | 低 |
+| T2 | `RouteSegmentInfo` 类型统一（AMap → 共享类型） | ✅ 已解决 | 低 |
+| T3 | ProviderSelector + CountryDetector 集成测试 | ✅ 已解决 | 中 |
+| T4 | `AwsMapsService` polyline 解码器完善 | ✅ 已解决 | 中 |
 
 ---
 

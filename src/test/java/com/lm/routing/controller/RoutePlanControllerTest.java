@@ -15,6 +15,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.Instant;
+import java.util.Locale;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -51,7 +52,8 @@ class RoutePlanControllerTest {
 
         mockMvc.perform(post("/api/v1/route-plans")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(body))
+                        .content(body)
+                        .locale(Locale.SIMPLIFIED_CHINESE))
                 .andExpect(status().isAccepted())
                 .andExpect(jsonPath("$.planId").value("plan-123"))
                 .andExpect(jsonPath("$.status").value("PENDING"))
@@ -72,7 +74,8 @@ class RoutePlanControllerTest {
 
         mockMvc.perform(post("/api/v1/route-plans")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(body))
+                        .content(body)
+                        .locale(Locale.SIMPLIFIED_CHINESE))
                 .andExpect(status().isBadRequest());
     }
 
@@ -87,7 +90,8 @@ class RoutePlanControllerTest {
 
         mockMvc.perform(post("/api/v1/route-plans")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(body))
+                        .content(body)
+                        .locale(Locale.SIMPLIFIED_CHINESE))
                 .andExpect(status().isBadRequest());
     }
 
@@ -102,7 +106,8 @@ class RoutePlanControllerTest {
 
         mockMvc.perform(post("/api/v1/route-plans")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(body))
+                        .content(body)
+                        .locale(Locale.SIMPLIFIED_CHINESE))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.title").value("输入无效：Maximum 500 stops supported, got 501"));
     }
@@ -121,7 +126,8 @@ class RoutePlanControllerTest {
 
         when(routePlanService.getPlan("plan-123")).thenReturn(response);
 
-        mockMvc.perform(get("/api/v1/route-plans/plan-123"))
+        mockMvc.perform(get("/api/v1/route-plans/plan-123")
+                        .locale(Locale.SIMPLIFIED_CHINESE))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.planId").value("plan-123"))
                 .andExpect(jsonPath("$.status").value("COMPLETED"))
@@ -133,7 +139,8 @@ class RoutePlanControllerTest {
         when(routePlanService.getPlan("nonexistent"))
                 .thenThrow(new RoutePlanException.NotFoundException("nonexistent"));
 
-        mockMvc.perform(get("/api/v1/route-plans/nonexistent"))
+        mockMvc.perform(get("/api/v1/route-plans/nonexistent")
+                        .locale(Locale.SIMPLIFIED_CHINESE))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.title").value("未找到路线规划：Route plan not found: nonexistent"));
     }
@@ -151,7 +158,8 @@ class RoutePlanControllerTest {
 
         when(routePlanService.getPlanStatus("plan-123")).thenReturn(status);
 
-        mockMvc.perform(get("/api/v1/route-plans/plan-123/status"))
+        mockMvc.perform(get("/api/v1/route-plans/plan-123/status")
+                        .locale(Locale.SIMPLIFIED_CHINESE))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.planId").value("plan-123"))
                 .andExpect(jsonPath("$.status").value("SOLVING_TSP"))
@@ -164,7 +172,8 @@ class RoutePlanControllerTest {
         when(routePlanService.getPlanStatus("nonexistent"))
                 .thenThrow(new RoutePlanException.NotFoundException("nonexistent"));
 
-        mockMvc.perform(get("/api/v1/route-plans/nonexistent/status"))
+        mockMvc.perform(get("/api/v1/route-plans/nonexistent/status")
+                        .locale(Locale.SIMPLIFIED_CHINESE))
                 .andExpect(status().isNotFound());
     }
 

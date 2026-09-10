@@ -3,6 +3,10 @@ spring:
     name: lm-routing
   profiles:
     active: dev
+  messages:
+    # Without this, a locale without its own bundle (e.g. en_US) falls back to the
+    # server JVM's default locale bundle instead of messages.properties.
+    fallback-to-system-locale: false
   jpa:
     hibernate:
       ddl-auto: update

@@ -17,8 +17,15 @@ public class RoutePlanException extends RuntimeException {
      * Thrown when a route plan with the given ID is not found.
      */
     public static class NotFoundException extends RoutePlanException {
+        private final String planId;
+
         public NotFoundException(String planId) {
             super("Route plan not found: " + planId);
+            this.planId = planId;
+        }
+
+        public String getPlanId() {
+            return planId;
         }
     }
 
@@ -35,8 +42,15 @@ public class RoutePlanException extends RuntimeException {
      * Thrown when the TSP solver fails unexpectedly.
      */
     public static class SolverException extends RoutePlanException {
-        public SolverException(String message, Throwable cause) {
-            super("Solver error: " + message, cause);
+        private final String reason;
+
+        public SolverException(String reason, Throwable cause) {
+            super("Solver error: " + reason, cause);
+            this.reason = reason;
+        }
+
+        public String getReason() {
+            return reason;
         }
     }
 }

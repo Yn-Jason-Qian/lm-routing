@@ -3,6 +3,8 @@ package com.lm.routing.exception;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.MessageSource;
+import org.springframework.context.i18n.LocaleContextHolder;
+import org.springframework.context.support.ResourceBundleMessageSource;
 import org.springframework.context.support.StaticMessageSource;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
@@ -98,5 +100,48 @@ class GlobalExceptionHandlerTest {
         assertEquals("Internal Server Error", pd.getTitle());
         assertEquals("An unexpected error occurred", pd.getDetail());
         assertNotNull(pd.getType());
+    }
+
+    /**
+     * With the real message bundles, the solver title must use the template's
+     * prefix and the raw failure reason — not wrap the full exception message.
+     */
+    @Test
+    void handleSolverError_withLocalizedMessages_shouldNotDuplicatePrefix() {
+        GlobalExceptionHandler localized = new GlobalExceptionHandler(realMessageSource());
+        RoutePlanException.SolverException ex =
+                new RoutePlanException.SolverException("TSP failed", new RuntimeException("cause"));
+
+        LocaleContextHolder.setLocale(java.util.Locale.SIMPLIFIED_CHINESE);
+        try {
+            ProblemDetail pd = localized.handleSolverError(ex);
+            assertEquals("求解器错误：TSP failed", pd.getTitle());
+        } finally {
+            LocaleContextHolder.resetLocaleContext();
+        }
+    }
+
+    /**
+     * The internal-error template has no placeholder, so the title must not
+     * end with a dangling separator.
+     */
+    @Test
+    void handleGeneral_withLocalizedMessages_shouldNotHaveEmptySuffix() {
+        GlobalExceptionHandler localized = new GlobalExceptionHandler(realMessageSource());
+
+        LocaleContextHolder.setLocale(java.util.Locale.SIMPLIFIED_CHINESE);
+        try {
+            ProblemDetail pd = localized.handleGeneral(new RuntimeException("boom"));
+            assertEquals("服务器内部错误", pd.getTitle());
+        } finally {
+            LocaleContextHolder.resetLocaleContext();
+        }
+    }
+
+    private MessageSource realMessageSource() {
+        ResourceBundleMessageSource ms = new ResourceBundleMessageSource();
+        ms.setBasename("messages");
+        ms.setDefaultEncoding("UTF-8");
+        return ms;
     }
 }

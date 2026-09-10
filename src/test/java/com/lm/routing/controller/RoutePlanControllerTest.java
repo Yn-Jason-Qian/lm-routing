@@ -24,6 +24,11 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
+/**
+ * Each request pins its locale explicitly. Combined with
+ * spring.messages.fallback-to-system-locale=false this makes i18n title
+ * assertions deterministic on any host, independent of the JVM default locale.
+ */
 @WebMvcTest({RoutePlanController.class, GlobalExceptionHandler.class})
 class RoutePlanControllerTest {
 
@@ -112,6 +117,23 @@ class RoutePlanControllerTest {
                 .andExpect(jsonPath("$.title").value("输入无效：Maximum 500 stops supported, got 501"));
     }
 
+    @Test
+    void createPlan_tooManyStops_enLocale_shouldReturnEnglishTitle() throws Exception {
+        RoutePlanException.InvalidInputException ex =
+                new RoutePlanException.InvalidInputException("Maximum 500 stops supported, got 501");
+
+        when(routePlanService.createPlan(any())).thenThrow(ex);
+
+        String body = objectMapper.writeValueAsString(validRequest());
+
+        mockMvc.perform(post("/api/v1/route-plans")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body)
+                        .locale(Locale.US))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.title").value("Invalid input: Maximum 500 stops supported, got 501"));
+    }
+
     // ===== GET /api/v1/route-plans/{planId} =====
 
     @Test
@@ -142,7 +164,18 @@ class RoutePlanControllerTest {
         mockMvc.perform(get("/api/v1/route-plans/nonexistent")
                         .locale(Locale.SIMPLIFIED_CHINESE))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.title").value("未找到路线规划：Route plan not found: nonexistent"));
+                .andExpect(jsonPath("$.title").value("未找到路线规划：nonexistent"));
+    }
+
+    @Test
+    void getPlan_notFound_enLocale_shouldReturnEnglishTitle() throws Exception {
+        when(routePlanService.getPlan("nonexistent"))
+                .thenThrow(new RoutePlanException.NotFoundException("nonexistent"));
+
+        mockMvc.perform(get("/api/v1/route-plans/nonexistent")
+                        .locale(Locale.US))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.title").value("Route plan not found: nonexistent"));
     }
 
     // ===== GET /api/v1/route-plans/{planId}/status =====

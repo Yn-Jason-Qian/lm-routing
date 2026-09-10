@@ -32,7 +32,7 @@ public class GlobalExceptionHandler {
     public ProblemDetail handleNotFound(RoutePlanException.NotFoundException ex) {
         log.warn("Not found: {}", ex.getMessage());
         ProblemDetail pd = ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, ex.getMessage());
-        pd.setTitle(msg("error.not_found", ex.getMessage()));
+        pd.setTitle(msg("error.not_found", ex.getPlanId()));
         pd.setType(URI.create("https://lm-routing.dev/errors/not-found"));
         return pd;
     }
@@ -51,7 +51,7 @@ public class GlobalExceptionHandler {
         log.error("Solver error: {}", ex.getMessage(), ex);
         ProblemDetail pd = ProblemDetail.forStatusAndDetail(
                 HttpStatus.INTERNAL_SERVER_ERROR, ex.getMessage());
-        pd.setTitle(msg("error.solver_failed", ex.getMessage()));
+        pd.setTitle(msg("error.solver_failed", ex.getReason()));
         pd.setType(URI.create("https://lm-routing.dev/errors/solver-error"));
         return pd;
     }
@@ -73,7 +73,7 @@ public class GlobalExceptionHandler {
         log.error("Unexpected error: {}", ex.getMessage(), ex);
         ProblemDetail pd = ProblemDetail.forStatusAndDetail(
                 HttpStatus.INTERNAL_SERVER_ERROR, "An unexpected error occurred");
-        pd.setTitle(msg("error.internal", ""));
+        pd.setTitle(msg("error.internal"));
         pd.setType(URI.create("https://lm-routing.dev/errors/internal"));
         return pd;
     }
